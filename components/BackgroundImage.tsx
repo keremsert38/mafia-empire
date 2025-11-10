@@ -7,38 +7,11 @@ interface BackgroundImageProps {
 }
 
 export default function BackgroundImage({ children, style }: BackgroundImageProps) {
-  // Fotoğraf dosyasının varlığını kontrol et
-  let backgroundSource;
-  try {
-    backgroundSource = require('@/assets/images/city-background.jpg');
-  } catch (error) {
-    // Fotoğraf bulunamazsa alternatif kullan
-    try {
-      backgroundSource = require('@/assets/images/city-background.png');
-    } catch (error2) {
-      // Hiç fotoğraf yoksa karanlık arka plan kullan
-      return (
-        <View style={[styles.fallbackBackground, style]}>
-          {children}
-        </View>
-      );
-    }
-  }
-
+  // Geçici olarak sadece siyah arka plan kullan
   return (
-    <ImageBackground
-      source={backgroundSource}
-      style={[styles.background, style]}
-      resizeMode="cover"
-      imageStyle={styles.imageStyle}
-    >
-      {/* Karanlık overlay - tam siyah arka plan için */}
-      <View style={styles.overlay} />
-      {/* İçerik */}
-      <View style={styles.contentContainer}>
-        {children}
-      </View>
-    </ImageBackground>
+    <View style={[styles.fallbackBackground, style]}>
+      {children}
+    </View>
   );
 }
 
