@@ -1,4 +1,6 @@
 import { supabase } from '@/lib/supabase';
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base64-arraybuffer';
 import { PlayerStats, Business, Territory, Mission, FamilyMember, ChatMessage, GameEvent, Leaderboard, Crime, Caporegime } from '@/types/game';
 
 class GameService {
@@ -27,7 +29,7 @@ class GameService {
     console.log('🔥 INITIALIZING GAME FOR USER:', { userId, username });
     this.currentUserId = userId;
     this.currentUsername = username;
-    
+
     try {
       // Kullanıcıya ait temel kayıtları garanti altına al
       await this.ensureUserInitialized();
@@ -66,7 +68,7 @@ class GameService {
     }
 
     console.log('🔄 Loading player stats from Supabase for user:', this.currentUserId);
-    
+
     const { data, error } = await supabase
       .from('player_stats')
       .select('*')
@@ -103,7 +105,7 @@ class GameService {
         charisma: data.charisma || 10,
         availablePoints: data.available_points || 0,
         rank: data.rank as any || 'Soldato',
-        familyId: null,
+        familyId: data.family_id || null,
         familyRole: null,
         location: data.location || 'Şehir Merkezi',
         inventory: [],
@@ -205,7 +207,7 @@ class GameService {
   // Supabase: işletmeleri yükle
   private async loadBusinessesFromSupabase() {
     console.log('🔄 Loading businesses from Supabase...');
-    
+
     const { data, error } = await supabase
       .from('businesses')
       .select('*')
@@ -258,7 +260,7 @@ class GameService {
     if (!this.currentUserId) return;
 
     console.log('🔄 Loading user businesses from Supabase...');
-    
+
     const { data, error } = await supabase
       .from('user_businesses')
       .select(`
@@ -300,7 +302,7 @@ class GameService {
           // Gelir hesaplama (seviye çarpanı) - her seviye %50 artış
           const incomeMultiplier = 1 + (business.level - 1) * 0.5;
           business.currentIncome = Math.floor(business.baseIncome * incomeMultiplier);
-          
+
           // Upgrade maliyeti hesaplama - her seviye için 1.5x artar
           // businesses tablosundan base upgrade_cost alıyoruz
           const baseBusiness = this.businesses.find(b => b.id === userBusiness.business_id);
@@ -326,7 +328,7 @@ class GameService {
 
         if (!error && data && data.length > 0) {
           const status = data[0];
-          
+
           // İnşaat durumu güncelle
           if (business.isBuilding && !status.is_building) {
             business.isBuilding = false;
@@ -339,11 +341,11 @@ class GameService {
             business.isUpgrading = false;
             business.upgradeStartTime = undefined;
             business.level += 1;
-            
+
             // Yeni geliri hesapla
             const incomeMultiplier = 1 + (business.level - 1) * 0.5;
             business.currentIncome = Math.floor(business.baseIncome * incomeMultiplier);
-            
+
             console.log('🏢 Upgrade completed:', business.name, 'New level:', business.level);
           }
         }
@@ -354,7 +356,7 @@ class GameService {
   // Supabase: bölgeleri ve durumlarını yükle
   private async loadRegionsFromSupabase() {
     console.log('🔄 Loading regions from Supabase...');
-    
+
     const [regionsRes, stateRes] = await Promise.all([
       supabase.from('regions').select('id,name,description,base_income_per_min'),
       supabase.from('region_state').select(`
@@ -376,22 +378,22 @@ class GameService {
       return;
     }
 
-    const stateByRegion: Record<string, { 
-      owner_user_id: string | null; 
+    const stateByRegion: Record<string, {
+      owner_user_id: string | null;
       defender_soldiers: number;
       owner_name?: string;
     }> = {};
-    
+
     // Owner bilgilerini almak için ayrı sorgu
     const ownerIds = [...new Set((stateRes.data ?? []).map(s => s.owner_user_id).filter(Boolean))];
     let owners: Record<string, { username: string; email: string }> = {};
-    
+
     if (ownerIds.length > 0) {
       const { data: ownerData } = await supabase
         .from('player_stats')
         .select('id, username')
         .in('id', ownerIds);
-      
+
       if (ownerData) {
         owners = ownerData.reduce((acc, owner) => {
           acc[owner.id] = { username: owner.username, email: '' };
@@ -399,7 +401,7 @@ class GameService {
         }, {} as Record<string, { username: string; email: string }>);
       }
     }
-    
+
     for (const s of stateRes.data ?? []) {
       const owner = owners[s.owner_user_id];
       stateByRegion[s.region_id] = {
@@ -425,7 +427,7 @@ class GameService {
         status,
       };
     });
-    
+
     console.log('✅ Loaded territories:', this.territories);
   }
 
@@ -442,7 +444,7 @@ class GameService {
 
     // Eğer asker sayısı verilmediyse, savunmacının asker sayısı kadar gönder
     let attackersToSend = soldiersToSend || Math.max(1, Math.min(this.playerStats.soldiers, t.soldiers));
-    
+
     // Maksimum asker sayısı kontrolü
     if (attackersToSend > this.playerStats.soldiers) {
       return { success: false, message: `Yetersiz asker! Sadece ${this.playerStats.soldiers} askeriniz var.` };
@@ -574,43 +576,43 @@ class GameService {
   // Soldato işe alma
   async hireSoldiers(count: number): Promise<{ success: boolean; message: string }> {
     console.log('🔥 HIRE SOLDIERS CALLED:', { count, currentCash: this.playerStats.cash, currentSoldiers: this.playerStats.soldiers });
-    
+
     const baseCost = 100;
     const levelMultiplier = 1 + (this.playerStats.level * 0.1);
     const totalCost = Math.floor(baseCost * count * levelMultiplier);
-    
+
     const maxSoldiers = this.playerStats.level * 5;
     const availableSlots = maxSoldiers - this.playerStats.soldiers;
-    
+
     console.log('🔥 HIRE CALCULATION:', { totalCost, maxSoldiers, availableSlots });
-    
+
     if (this.playerStats.cash < totalCost) {
       return { success: false, message: `Yetersiz para! ${count} soldato için $${totalCost.toLocaleString()} gerekli.` };
     }
-    
+
     if (count > availableSlots) {
       return { success: false, message: `Yetersiz slot! Maksimum ${availableSlots} soldato alabilirsiniz.` };
     }
-    
+
     // Para düş ve soldato ekle
     this.playerStats.cash -= totalCost;
     this.playerStats.soldiers += count;
-    
+
     // Soldato gücünü hesapla ve ekle (her soldato 2 güç puanı)
     const soldierPower = count * 2;
     this.playerStats.strength += soldierPower;
-    
+
     console.log('🔥 AFTER HIRE:', { newCash: this.playerStats.cash, newSoldiers: this.playerStats.soldiers });
-    
+
     // Hem player_stats hem de user_soldiers tablosunu güncelle
     await Promise.all([
       this.savePlayerStatsToSupabase(),
       this.saveSoldiersToSupabase()
     ]);
-    
-    return { 
-      success: true, 
-      message: `${count} soldato başarıyla işe alındı! $${totalCost.toLocaleString()} ödendi. +${soldierPower} güç kazandınız!` 
+
+    return {
+      success: true,
+      message: `${count} soldato başarıyla işe alındı! $${totalCost.toLocaleString()} ödendi. +${soldierPower} güç kazandınız!`
     };
   }
 
@@ -650,33 +652,33 @@ class GameService {
   async addMTCoins(amount: number, bonus: number = 0): Promise<{ success: boolean; message: string }> {
     const totalAmount = amount + bonus;
     console.log('💎 ADDING MT COINS:', { amount, bonus, totalAmount });
-    
+
     this.playerStats.mtCoins += totalAmount;
-    
+
     // Supabase'e kaydet
     await this.saveMTCoinsToSupabase();
-    
+
     let message = `${totalAmount} MT Coin hesabınıza eklendi!`;
     if (bonus > 0) {
       message = `${amount} MT Coin + ${bonus} Bonus = ${totalAmount} MT Coin hesabınıza eklendi!`;
     }
-    
+
     return { success: true, message };
   }
 
   // MT Coins harcama
   async spendMTCoins(amount: number, reason: string): Promise<{ success: boolean; message: string }> {
     console.log('💎 SPENDING MT COINS:', { amount, reason, currentBalance: this.playerStats.mtCoins });
-    
+
     if (this.playerStats.mtCoins < amount) {
       return { success: false, message: 'Yetersiz MT Coin!' };
     }
-    
+
     this.playerStats.mtCoins -= amount;
-    
+
     // Supabase'e kaydet
     await this.saveMTCoinsToSupabase();
-    
+
     return { success: true, message: `${amount} MT Coin harcandı (${reason})` };
   }
 
@@ -709,10 +711,74 @@ class GameService {
     }
   }
 
+  // Profil Fotoğrafı Yükleme
+  async uploadProfilePhoto(imageUri: string): Promise<{ success: boolean; message: string; url?: string }> {
+    if (!this.currentUserId) {
+      return { success: false, message: 'Kullanıcı kimliği bulunamadı!' };
+    }
+
+    try {
+      console.log('📸 Uploading profile photo...');
+
+      // Read file as Base64 using Expo FileSystem
+      const base64 = await FileSystem.readAsStringAsync(imageUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Convert Base64 to ArrayBuffer
+      const arrayBuffer = decode(base64);
+
+      // Dosya adı oluştur
+      const fileExt = 'jpg';
+      const fileName = `${this.currentUserId}/${Date.now()}.${fileExt}`;
+
+      // Supabase Storage'a yükle (ArrayBuffer kullanarak)
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('profile-photos')
+        .upload(fileName, arrayBuffer, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+
+      if (uploadError) {
+        console.error('❌ Upload error:', uploadError);
+        throw uploadError;
+      }
+
+      // Public URL al
+      const { data: urlData } = supabase.storage
+        .from('profile-photos')
+        .getPublicUrl(fileName);
+
+      const publicUrl = urlData.publicUrl;
+      console.log('✅ Photo uploaded, URL:', publicUrl);
+
+      // player_stats'ı güncelle
+      const { error: updateError } = await supabase
+        .from('player_stats')
+        .update({ profile_image: publicUrl })
+        .eq('id', this.currentUserId);
+
+      if (updateError) {
+        console.error('❌ Update error:', updateError);
+        throw updateError;
+      }
+
+      // Local state güncelle
+      this.playerStats.profileImage = publicUrl;
+
+      console.log('✅ Profile photo updated successfully');
+      return { success: true, message: 'Profil fotoğrafı başarıyla güncellendi!', url: publicUrl };
+    } catch (error: any) {
+      console.error('❌ Profile photo upload failed:', error);
+      return { success: false, message: error.message || 'Fotoğraf yüklenemedi!' };
+    }
+  }
+
   // Suç işleme
   commitCrime(crimeId: string): { success: boolean; message: string; reward?: number; xp?: number } {
     console.log('🔥 COMMIT CRIME CALLED:', crimeId);
-    
+
     if (this.activeCrime) {
       return { success: false, message: 'Zaten bir suç işliyorsunuz!' };
     }
@@ -749,61 +815,149 @@ class GameService {
     // Supabase'e kaydet
     this.savePlayerStatsToSupabase();
 
-    return { 
-      success: true, 
-      message: `${crime.name} suçu başlatıldı! ${crime.duration} saniye sürecek.` 
+    return {
+      success: true,
+      message: `${crime.name} suçu başlatıldı! ${crime.duration} saniye sürecek.`
     };
   }
 
   private completeCrime(crime: Crime) {
     console.log('🔥 COMPLETING CRIME:', crime.name);
-    
+
     // Başarı oranını kontrol et
     const success = Math.random() * 100 <= crime.successRate;
-    
+
     if (success) {
       // Ödül hesapla
       const levelMultiplier = 1 + (this.playerStats.level - crime.requiredLevel) * 0.1;
       const reward = Math.floor(crime.baseReward * Math.max(1, levelMultiplier));
       const xp = Math.floor(crime.baseXP * Math.max(1, levelMultiplier));
-      
+
       // Ödülleri ver
       this.playerStats.cash += reward;
       this.playerStats.experience += xp;
       this.playerStats.totalEarnings += reward;
-      
+
       // Level kontrolü
       this.checkLevelUp();
-      
+
       console.log('🔥 CRIME SUCCESS:', { reward, xp, newCash: this.playerStats.cash });
 
       // Olay bildirimi
       this.events.unshift({
         id: `crime_${Date.now()}`,
         type: 'mission',
-        message: `${crime.name} başarıyla tamamlandı! +$${reward.toLocaleString()} ve +${xp} XP`,
-        timestamp: new Date(),
-        data: { reward, xp, crimeId: crime.id },
+        message: `${crime.name} tamamlandı! +$${reward.toLocaleString()} | +${xp} XP`,
+        timestamp: new Date()
       });
+
+      // Suçu temizle ve cooldown ayarla
+      this.activeCrime = null;
+      crime.lastUsed = new Date();
+
+      // Supabase'e kaydet
+      this.savePlayerStatsToSupabase();
+
+      // Bildirim gönder (UI için)
+      // Note: This return statement will not affect the caller of completeCrime as it's called via setTimeout.
+      // If you intend to get a result, completeCrime should be called synchronously or refactored.
+      return { success: true, message: `+$${reward.toLocaleString()} | +${xp} XP`, reward, xp };
     } else {
       console.log('🔥 CRIME FAILED');
+
       this.events.unshift({
         id: `crime_${Date.now()}`,
         type: 'mission',
-        message: `${crime.name} başarısız oldu.`,
-        timestamp: new Date(),
-        data: { crimeId: crime.id },
+        message: `${crime.name} başarısız oldu!`,
+        timestamp: new Date()
       });
+
+      // Suçu temizle
+      this.activeCrime = null;
+
+      // Cooldown ayarla
+      crime.lastUsed = new Date();
+
+      // Supabase'e kaydet
+      this.savePlayerStatsToSupabase();
+
+      return { success: false, message: 'Suç başarısız oldu!' };
     }
-    
-    // Suçu temizle
-    this.activeCrime = null;
-    
-    // Cooldown ayarla
-    crime.lastUsed = new Date();
-    
-    // Supabase'e kaydet
-    this.savePlayerStatsToSupabase();
+  }
+
+  // Aile Malikanesine Saldır
+  async attackMansion(targetFamilyId: string, soldiersToSend: number): Promise<{ success: boolean; message: string; loot?: number }> {
+    console.log('🔥 ATTACK MANSION:', { targetFamilyId, soldiersToSend });
+
+    if (!this.playerStats.familyId) {
+      return { success: false, message: 'Bir aileye üye olmadan saldıramazsınız!' };
+    }
+
+    if (this.playerStats.familyId === targetFamilyId) {
+      return { success: false, message: 'Kendi ailenize saldıramazsınız!' };
+    }
+
+    if (soldiersToSend > this.playerStats.soldiers) {
+      return { success: false, message: `Yetersiz asker! ${this.playerStats.soldiers} askeriniz var.` };
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('attack_family_mansion', {
+        p_target_family_id: targetFamilyId,
+        p_attacking_soldiers: soldiersToSend
+      });
+
+      if (error) throw error;
+
+      // Player stats'ı güncelle (RPC zaten güncelledi ama client state'i yenilemek iyi olur)
+      await this.loadPlayerStatsFromSupabase();
+      await this.refreshSoldiersFromSupabase();
+
+      return {
+        success: data.success,
+        message: data.message,
+        loot: data.loot
+      };
+
+    } catch (error: any) {
+      console.error('❌ Attack error:', error);
+      return { success: false, message: error.message || 'Saldırı sırasında hata oluştu.' };
+    }
+  }
+
+  // Oyuncuya Saldırı - Supabase RPC kullanarak
+  async attackPlayer(targetId: string, targetName: string, soldiersToSend: number): Promise<{ success: boolean; message: string; cashStolen?: number; soldiersLost?: number }> {
+    console.log('🔥 ATTACK PLAYER:', { targetId, targetName, soldiersToSend });
+
+    try {
+      // Supabase RPC fonksiyonunu çağır - tüm business logic database'de
+      const { data, error } = await supabase.rpc('rpc_attack_player', {
+        p_target_player_id: targetId,
+        p_soldiers_to_send: soldiersToSend
+      });
+
+      if (error) {
+        console.error('❌ RPC Attack error:', error);
+        return { success: false, message: error.message || 'Saldırı başarısız!' };
+      }
+
+      console.log('✅ Attack RPC result:', data);
+
+      // Client-side state'i güncelle
+      await this.loadPlayerStatsFromSupabase();
+      await this.refreshSoldiersFromSupabase();
+
+      return {
+        success: data.success,
+        message: data.message,
+        cashStolen: data.cashStolen || 0,
+        soldiersLost: data.soldiersLost || 0
+      };
+
+    } catch (error: any) {
+      console.error('❌ Attack error:', error);
+      return { success: false, message: error.message || 'Saldırı sırasında hata oluştu.' };
+    }
   }
 
   // Enerji yenileme: her 30 saniyede +1, maksimum 100
@@ -834,7 +988,7 @@ class GameService {
       this.playerStats.level++;
       this.playerStats.experienceToNext = Math.floor(this.playerStats.experienceToNext * 1.5);
       this.playerStats.availablePoints += 5;
-      
+
       console.log('🔥 LEVEL UP!', { newLevel: this.playerStats.level });
     }
   }
@@ -842,33 +996,33 @@ class GameService {
   // Gelir toplama
   collectAccumulatedIncome(amount: number): { success: boolean; message: string } {
     console.log('🔥 COLLECT INCOME:', amount);
-    
+
     this.playerStats.cash += amount;
     this.playerStats.totalEarnings += amount;
-    
+
     // Supabase'e kaydet
     this.savePlayerStatsToSupabase();
-    
-    return { 
-      success: true, 
-      message: `$${amount.toLocaleString()} gelir toplandı!` 
+
+    return {
+      success: true,
+      message: `$${amount.toLocaleString()} gelir toplandı!`
     };
   }
 
   // Profil güncelleme
   updateProfile(updates: Partial<PlayerStats>): { success: boolean; message: string } {
     console.log('🔥 UPDATE PROFILE:', updates);
-    
+
     if (updates.name) {
       this.playerStats.name = updates.name;
     }
     if (updates.profileImage) {
       this.playerStats.profileImage = updates.profileImage;
     }
-    
+
     // Supabase'e kaydet
     this.savePlayerStatsToSupabase();
-    
+
     return { success: true, message: 'Profil başarıyla güncellendi!' };
   }
 
@@ -927,354 +1081,296 @@ class GameService {
   private initializeGameData() {
     // Suçları başlat
     this.crimes = [
-      // Sokak Suçları (Level 1-8)
+      // Sokak Suçları (Level 1-10)
       {
         id: 'street_1',
         name: 'Duvara Grafiti Yapma',
-        description: 'Duvara Grafiti Yap',
-        minReward: 50,
-        maxReward: 150,
-        experienceReward: 10,
-        energyCost: 10,
-        successRate: 85,
+        description: 'Çete sembolünü duvara çiz.',
+        energyCost: 5,
+        duration: 60,
+        successRate: 95,
+        baseReward: 50,
+        baseXP: 5,
         requiredLevel: 1,
-        cooldown: 5, // 5 dakika
-        duration: 1, // 1 dakika
-        baseReward: 100,
-        baseXP: 10,
-        riskLevel: 'low',
-        category: 'street'
+        cooldown: 300,
+        category: 'street',
+        riskLevel: 'low'
       },
       {
         id: 'street_2',
-        name: 'Bisiklet Hırsızlığı',
-        description: 'Park halindeki bisikleti çal',
-        minReward: 100,
-        maxReward: 300,
-        experienceReward: 15,
-        energyCost: 15,
-        successRate: 75,
+        name: 'Cep Telefonu Çalma',
+        description: 'Kalabalık bir yerde telefon çal.',
+        energyCost: 10,
+        duration: 120,
+        successRate: 85,
+        baseReward: 150,
+        baseXP: 8,
         requiredLevel: 2,
-        cooldown: 600, // 10 dakika
-        duration: 120, // 2 dakika
-        baseReward: 200,
-        baseXP: 15,
-        riskLevel: 'low',
-        category: 'street'
+        cooldown: 600,
+        category: 'street',
+        riskLevel: 'low'
       },
       {
         id: 'street_3',
-        name: 'Mağaza Gasp',
-        description: 'Küçük bir mağazayı gasp et',
-        minReward: 200,
-        maxReward: 500,
-        experienceReward: 25,
-        energyCost: 20,
-        successRate: 65,
-        requiredLevel: 4,
-        cooldown: 900, // 15 dakika
-        duration: 180, // 3 dakika
+        name: 'Market Soygunu',
+        description: 'Küçük bir marketi soy.',
+        energyCost: 15,
+        duration: 180,
+        successRate: 75,
         baseReward: 350,
-        baseXP: 25,
-        riskLevel: 'medium',
-        category: 'street'
+        baseXP: 12,
+        requiredLevel: 4,
+        cooldown: 900,
+        category: 'street',
+        riskLevel: 'medium'
       },
       {
         id: 'street_4',
         name: 'Araba Çalma',
-        description: 'Lüks bir arabayı çal ve sat',
-        minReward: 500,
-        maxReward: 1200,
-        experienceReward: 40,
-        energyCost: 25,
-        successRate: 55,
+        description: 'Park halindeki bir arabayı çal.',
+        energyCost: 20,
+        duration: 300,
+        successRate: 65,
+        baseReward: 800,
+        baseXP: 18,
         requiredLevel: 6,
-        cooldown: 1200, // 20 dakika
-        duration: 240, // 4 dakika
-        baseReward: 850,
-        baseXP: 40,
-        riskLevel: 'medium',
-        category: 'street'
+        cooldown: 1200,
+        category: 'street',
+        riskLevel: 'medium'
       },
       {
         id: 'street_5',
-        name: 'Banka Soygunu',
-        description: 'Küçük bir banka şubesini soy',
-        minReward: 1000,
-        maxReward: 2500,
-        experienceReward: 60,
-        energyCost: 30,
-        successRate: 45,
+        name: 'Evden Hırsızlık',
+        description: 'Boş bir eve gir ve değerli eşyaları çal.',
+        energyCost: 25,
+        duration: 480,
+        successRate: 55,
+        baseReward: 1500,
+        baseXP: 25,
         requiredLevel: 8,
-        cooldown: 1800, // 30 dakika
-        duration: 300, // 5 dakika
-        baseReward: 1750,
-        baseXP: 60,
-        riskLevel: 'high',
-        category: 'street'
+        cooldown: 1800,
+        category: 'street',
+        riskLevel: 'high'
       },
 
-      // İş Dünyası Suçları (Level 10-20)
+      // İş Suçları (Level 10-20)
       {
         id: 'business_1',
-        name: 'Sahte Fatura',
-        description: 'Sahte faturalarla vergi kaçır',
-        minReward: 800,
-        maxReward: 1500,
-        experienceReward: 50,
-        energyCost: 20,
+        name: 'Sahte Evrak',
+        description: 'Sahte kimlik ve belgeler hazırla.',
+        energyCost: 30,
+        duration: 600,
         successRate: 70,
+        baseReward: 2000,
+        baseXP: 35,
         requiredLevel: 10,
-        cooldown: 1800, // 30 dakika
-        duration: 300, // 5 dakika
-        baseReward: 1150,
-        baseXP: 50,
-        riskLevel: 'medium',
-        category: 'business'
+        cooldown: 2400,
+        category: 'business',
+        riskLevel: 'medium'
       },
       {
         id: 'business_2',
-        name: 'İnşaat Rüşveti',
-        description: 'İnşaat projelerinden rüşvet al',
-        minReward: 1200,
-        maxReward: 2500,
-        experienceReward: 70,
-        energyCost: 25,
-        successRate: 65,
+        name: 'Kaçak Mal Ticareti',
+        description: 'Kaçak malları sat.',
+        energyCost: 35,
+        duration: 720,
+        successRate: 60,
+        baseReward: 3500,
+        baseXP: 45,
         requiredLevel: 12,
-        cooldown: 2400, // 40 dakika
-        duration: 480, // 8 dakika
-        baseReward: 1850,
-        baseXP: 70,
-        riskLevel: 'medium',
-        category: 'business'
+        cooldown: 3000,
+        category: 'business',
+        riskLevel: 'medium'
       },
       {
         id: 'business_3',
         name: 'Kara Para Aklama',
-        description: 'Kirli parayı temiz göster',
-        minReward: 2000,
-        maxReward: 4000,
-        experienceReward: 90,
-        energyCost: 30,
-        successRate: 60,
+        description: 'Kirli parayı temiz göster.',
+        energyCost: 40,
+        duration: 900,
+        successRate: 50,
+        baseReward: 5000,
+        baseXP: 60,
         requiredLevel: 15,
-        cooldown: 3000, // 50 dakika
-        duration: 600, // 10 dakita
-        baseReward: 3000,
-        baseXP: 90,
-        riskLevel: 'high',
-        category: 'business'
+        cooldown: 3600,
+        category: 'business',
+        riskLevel: 'high'
       },
       {
         id: 'business_4',
-        name: 'Şirket Ele Geçirme',
-        description: 'Rakip şirketi ele geçir',
-        minReward: 3000,
-        maxReward: 6000,
-        experienceReward: 120,
-        energyCost: 35,
-        successRate: 50,
+        name: 'Kumarhane İşletme',
+        description: 'Yasadışı kumarhane aç.',
+        energyCost: 45,
+        duration: 1200,
+        successRate: 45,
+        baseReward: 7500,
+        baseXP: 80,
         requiredLevel: 17,
-        cooldown: 3600, // 60 dakika
-        duration: 720, // 12 dakika
-        baseReward: 4500,
-        baseXP: 120,
-        riskLevel: 'high',
-        category: 'business'
+        cooldown: 4200,
+        category: 'business',
+        riskLevel: 'high'
       },
       {
         id: 'business_5',
-        name: 'Borsa Manipülasyonu',
-        description: 'Hisse fiyatlarını manipüle et',
-        minReward: 4000,
-        maxReward: 8000,
-        experienceReward: 150,
-        energyCost: 40,
-        successRate: 45,
+        name: 'Banka Soygunu',
+        description: 'Büyük bir banka soy.',
+        energyCost: 50,
+        duration: 1800,
+        successRate: 35,
+        baseReward: 12000,
+        baseXP: 100,
         requiredLevel: 20,
-        cooldown: 4200, // 70 dakika
-        duration: 960, // 16 dakika
-        baseReward: 6000,
-        baseXP: 150,
-        riskLevel: 'high',
-        category: 'business'
+        cooldown: 5400,
+        category: 'business',
+        riskLevel: 'high'
       },
 
       // Politik Suçlar (Level 20-30)
       {
         id: 'political_1',
         name: 'Belediye Rüşveti',
-        description: 'Belediye başkanından rüşvet al',
-        minReward: 3000,
-        maxReward: 5000,
-        experienceReward: 100,
-        energyCost: 30,
+        description: 'Belediye görevlilerine rüşvet ver.',
+        energyCost: 55,
+        duration: 2400,
         successRate: 60,
-        requiredLevel: 20,
-        cooldown: 3600, // 60 dakika
-        duration: 600, // 10 dakika
-        baseReward: 4000,
-        baseXP: 100,
-        riskLevel: 'high',
-        category: 'political'
+        baseReward: 15000,
+        baseXP: 120,
+        requiredLevel: 22,
+        cooldown: 6000,
+        category: 'political',
+        riskLevel: 'high'
       },
       {
         id: 'political_2',
-        name: 'Seçim Hilesi',
-        description: 'Yerel seçimleri manipüle et',
-        minReward: 5000,
-        maxReward: 8000,
-        experienceReward: 130,
-        energyCost: 35,
-        successRate: 55,
-        requiredLevel: 22,
-        cooldown: 4800, // 80 dakika
-        duration: 900, // 15 dakika
-        baseReward: 6500,
-        baseXP: 130,
-        riskLevel: 'high',
-        category: 'political'
+        name: 'Seçim Manipülasyonu',
+        description: 'Yerel seçimleri manipüle et.',
+        energyCost: 60,
+        duration: 3000,
+        successRate: 50,
+        baseReward: 20000,
+        baseXP: 150,
+        requiredLevel: 24,
+        cooldown: 7200,
+        category: 'political',
+        riskLevel: 'high'
       },
       {
         id: 'political_3',
         name: 'Yargıç Satın Alma',
-        description: 'Yargıcı satın alarak kararları etkile',
-        minReward: 7000,
-        maxReward: 12000,
-        experienceReward: 160,
-        energyCost: 40,
-        successRate: 50,
-        requiredLevel: 25,
-        cooldown: 6000, // 100 dakika
-        duration: 1500, // 25 dakika
-        baseReward: 9500,
-        baseXP: 160,
-        riskLevel: 'high',
-        category: 'political'
+        description: 'Bir yargıcı satın al.',
+        energyCost: 65,
+        duration: 3600,
+        successRate: 45,
+        baseReward: 25000,
+        baseXP: 180,
+        requiredLevel: 26,
+        cooldown: 9000,
+        category: 'political',
+        riskLevel: 'high'
       },
       {
         id: 'political_4',
-        name: 'Milletvekili Tehdit',
-        description: 'Milletvekilini tehdit ederek oy satın al',
-        minReward: 10000,
-        maxReward: 15000,
-        experienceReward: 200,
-        energyCost: 45,
-        successRate: 45,
-        requiredLevel: 27,
-        cooldown: 7200, // 120 dakika
-        duration: 2400, // 40 dakika
-        baseReward: 12500,
-        baseXP: 200,
-        riskLevel: 'high',
-        category: 'political'
+        name: 'Polis Şefi Tehdidi',
+        description: 'Polis şefini tehdit et.',
+        energyCost: 70,
+        duration: 4200,
+        successRate: 40,
+        baseReward: 30000,
+        baseXP: 220,
+        requiredLevel: 28,
+        cooldown: 10800,
+        category: 'political',
+        riskLevel: 'high'
       },
       {
         id: 'political_5',
-        name: 'Devlet Sırrı Satışı',
-        description: 'Devlet sırlarını yabancı güçlere sat',
-        minReward: 15000,
-        maxReward: 25000,
-        experienceReward: 250,
-        energyCost: 50,
-        successRate: 40,
-        requiredLevel: 30,
-        cooldown: 9000, // 150 dakika
-        duration: 3000, // 50 dakika
-        baseReward: 20000,
+        name: 'Milletvekili Kontrolü',
+        description: 'Bir milletvekilini kontrol altına al.',
+        energyCost: 75,
+        duration: 5400,
+        successRate: 30,
+        baseReward: 40000,
         baseXP: 250,
-        riskLevel: 'high',
-        category: 'political'
+        requiredLevel: 30,
+        cooldown: 14400,
+        category: 'political',
+        riskLevel: 'high'
       },
 
-      // Uluslararası Suçlar (Level 30-40)
+      // Uluslararası Suçlar (Level 30+)
       {
         id: 'international_1',
         name: 'Silah Kaçakçılığı',
-        description: 'Uluslararası silah kaçakçılığı yap',
-        minReward: 12000,
-        maxReward: 20000,
-        experienceReward: 180,
-        energyCost: 40,
+        description: 'Uluslararası silah kaçakçılığı yap.',
+        energyCost: 80,
+        duration: 6000,
         successRate: 50,
-        requiredLevel: 30,
-        cooldown: 7200, // 120 dakika
-        duration: 2400, // 40 dakika
-        baseReward: 16000,
-        baseXP: 180,
-        riskLevel: 'high',
-        category: 'international'
+        baseReward: 50000,
+        baseXP: 300,
+        requiredLevel: 32,
+        cooldown: 18000,
+        category: 'international',
+        riskLevel: 'high'
       },
       {
         id: 'international_2',
         name: 'Uyuşturucu Karteli',
-        description: 'Uluslararası uyuşturucu kartelini yönet',
-        minReward: 18000,
-        maxReward: 30000,
-        experienceReward: 220,
-        energyCost: 45,
+        description: 'Uyuşturucu kartelini yönet.',
+        energyCost: 85,
+        duration: 7200,
         successRate: 45,
-        requiredLevel: 32,
-        cooldown: 9000, // 150 dakika
-        duration: 3600, // 60 dakika
-        baseReward: 24000,
-        baseXP: 220,
-        riskLevel: 'high',
-        category: 'international'
+        baseReward: 65000,
+        baseXP: 350,
+        requiredLevel: 34,
+        cooldown: 21600,
+        category: 'international',
+        riskLevel: 'high'
       },
       {
         id: 'international_3',
         name: 'İnsan Kaçakçılığı',
-        description: 'Uluslararası insan kaçakçılığı ağını yönet',
-        minReward: 25000,
-        maxReward: 40000,
-        experienceReward: 280,
-        energyCost: 50,
+        description: 'İnsan kaçakçılığı ağını işlet.',
+        energyCost: 90,
+        duration: 9000,
         successRate: 40,
-        requiredLevel: 35,
-        cooldown: 10800, // 180 dakika
-        duration: 4800, // 80 dakika
-        baseReward: 32500,
-        baseXP: 280,
-        riskLevel: 'high',
-        category: 'international'
+        baseReward: 80000,
+        baseXP: 400,
+        requiredLevel: 36,
+        cooldown: 25200,
+        category: 'international',
+        riskLevel: 'high'
       },
       {
         id: 'international_4',
         name: 'Siber Saldırı',
-        description: 'Uluslararası bankalara siber saldırı düzenle',
-        minReward: 35000,
-        maxReward: 55000,
-        experienceReward: 350,
-        energyCost: 55,
+        description: 'Uluslararası bankalara siber saldırı düzenle.',
+        energyCost: 95,
+        duration: 10800,
         successRate: 35,
-        requiredLevel: 37,
-        cooldown: 12600, // 210 dakika
-        duration: 5400, // 90 dakika
-        baseReward: 45000,
-        baseXP: 350,
-        riskLevel: 'high',
-        category: 'international'
+        baseReward: 100000,
+        baseXP: 500,
+        requiredLevel: 38,
+        cooldown: 28800,
+        category: 'international',
+        riskLevel: 'high'
       },
       {
         id: 'international_5',
-        name: 'Ülke Darbesi',
-        description: 'Küçük bir ülkede darbe organize et',
-        minReward: 50000,
-        maxReward: 80000,
-        experienceReward: 500,
-        energyCost: 60,
-        successRate: 30,
+        name: 'Küresel İmparatorluk',
+        description: 'Global suç imparatorluğunu yönet.',
+        energyCost: 100,
+        duration: 14400,
+        successRate: 25,
+        baseReward: 150000,
+        baseXP: 600,
         requiredLevel: 40,
-        cooldown: 18000, // 300 dakika
-        duration: 6000, // 100 dakika
-        baseReward: 65000,
-        baseXP: 500,
-        riskLevel: 'high',
-        category: 'international'
+        cooldown: 36000,
+        category: 'international',
+        riskLevel: 'high'
       }
     ];
+
+
 
     // Diğer oyun verilerini başlat
     this.initializeBusinesses();
@@ -1338,7 +1434,7 @@ class GameService {
         efficiency: 100,
         features: []
       },
-      
+
       // Ticaret İşletmeleri
       {
         id: 'transport_company',
@@ -1390,7 +1486,7 @@ class GameService {
         efficiency: 100,
         features: []
       },
-      
+
       // Eğlence İşletmeleri
       {
         id: 'nightclub',
@@ -1442,7 +1538,7 @@ class GameService {
         efficiency: 100,
         features: []
       },
-      
+
       // Teknoloji İşletmeleri
       {
         id: 'software_company',
@@ -1469,7 +1565,7 @@ class GameService {
         efficiency: 100,
         features: []
       },
-      
+
       // Finans İşletmeleri
       {
         id: 'private_bank',
@@ -1591,7 +1687,7 @@ class GameService {
   // İşletme metodları
   async buildBusiness(businessId: string): Promise<{ success: boolean; message: string }> {
     console.log('🏢 BUILD BUSINESS CALLED:', businessId);
-    
+
     const { data, error } = await supabase.rpc('rpc_build_business', {
       p_business_id: businessId
     });
@@ -1616,7 +1712,7 @@ class GameService {
 
   private completeBuilding(businessId: string) {
     console.log('🏢 COMPLETING BUILDING:', businessId);
-    
+
     const business = this.businesses.find(b => b.id === businessId);
     if (!business) return;
 
@@ -1641,7 +1737,7 @@ class GameService {
 
   async upgradeBusiness(businessId: string): Promise<{ success: boolean; message: string }> {
     console.log('🏢 UPGRADE BUSINESS CALLED:', businessId);
-    
+
     const { data, error } = await supabase.rpc('rpc_upgrade_business', {
       p_business_id: businessId
     });
@@ -1666,18 +1762,18 @@ class GameService {
 
   private completeUpgrade(businessId: string) {
     console.log('🏢 COMPLETING UPGRADE:', businessId);
-    
+
     const business = this.businesses.find(b => b.id === businessId);
     if (!business) return;
 
     business.isUpgrading = false;
     business.upgradeStartTime = undefined;
     business.level++;
-    
+
     // Geliri artır (seviye çarpanı)
     const incomeMultiplier = 1 + (business.level - 1) * 0.5; // Her seviye %50 artış
     business.currentIncome = Math.floor(business.baseIncome * incomeMultiplier);
-    
+
     // Sonraki seviye için maliyeti artır
     business.upgradeCost = Math.floor(business.upgradeCost * 1.5);
 
@@ -1701,29 +1797,29 @@ class GameService {
   // MT Coin ile inşaatı hızlandır
   async finishBuildingWithMT(businessId: string): Promise<{ success: boolean; message: string }> {
     console.log('💎 FINISH BUILDING WITH MT:', businessId);
-    
+
     const business = this.businesses.find(b => b.id === businessId);
     if (!business) {
       return { success: false, message: 'İşletme bulunamadı!' };
     }
-    
+
     if (!business.isBuilding) {
       return { success: false, message: 'İşletme zaten inşa edilmiş!' };
     }
-    
+
     // MT Coin maliyeti: İnşaat süresine göre (her 10 dakika = 1 MT)
     const mtCost = Math.ceil(business.buildTime / 10);
-    
+
     // MT Coin kontrolü
     const spendResult = await this.spendMTCoins(mtCost, 'İnşaat Hızlandırma');
     if (!spendResult.success) {
       return spendResult;
     }
-    
+
     // İnşaatı tamamla
     business.isBuilding = false;
     business.buildStartTime = undefined;
-    
+
     // Supabase'de tamamla
     const { error } = await supabase
       .from('user_businesses')
@@ -1733,59 +1829,59 @@ class GameService {
       })
       .eq('user_id', this.currentUserId)
       .eq('business_id', businessId);
-    
+
     if (error) {
       console.error('❌ Error finishing building:', error);
       return { success: false, message: 'İnşaat tamamlanamadı!' };
     }
-    
+
     await this.loadBusinessesFromSupabase();
-    
+
     return { success: true, message: `${business.name} inşaatı ${mtCost} MT ile tamamlandı!` };
   }
 
   // MT Coin ile yükseltmeyi hızlandır
   async finishUpgradeWithMT(businessId: string): Promise<{ success: boolean; message: string }> {
     console.log('💎 FINISH UPGRADE WITH MT:', businessId);
-    
+
     const business = this.businesses.find(b => b.id === businessId);
     if (!business) {
       return { success: false, message: 'İşletme bulunamadı!' };
     }
-    
+
     if (!business.isUpgrading) {
       return { success: false, message: 'İşletme zaten geliştirilmiş!' };
     }
-    
+
     // MT Coin maliyeti: Yükseltme süresine göre (her 10 dakika = 1 MT)
     const mtCost = Math.ceil(business.upgradeTime / 10);
-    
+
     // MT Coin kontrolü
     const spendResult = await this.spendMTCoins(mtCost, 'Yükseltme Hızlandırma');
     if (!spendResult.success) {
       return spendResult;
     }
-    
+
     // Yükseltmeyi tamamla
     const { error } = await supabase.rpc('rpc_complete_upgrade', {
       p_business_id: businessId
     });
-    
+
     if (error) {
       console.error('❌ Error finishing upgrade:', error);
       return { success: false, message: 'Yükseltme tamamlanamadı!' };
     }
-    
+
     await this.loadBusinessesFromSupabase();
     await this.loadPlayerStatsFromSupabase();
-    
+
     return { success: true, message: `${business.name} yükseltmesi ${mtCost} MT ile tamamlandı!` };
   }
 
   // İşletme gelirini topla
   async collectBusinessIncome(businessId: string): Promise<{ success: boolean; message: string; amount?: number }> {
     console.log('🏢 COLLECT BUSINESS INCOME:', businessId);
-    
+
     const { data, error } = await supabase.rpc('rpc_collect_business_income', {
       p_business_id: businessId
     });
@@ -1811,24 +1907,24 @@ class GameService {
   // Tüm işletme gelirlerini topla
   collectAllBusinessIncome(): { success: boolean; message: string; totalAmount?: number } {
     console.log('🏢 COLLECT ALL BUSINESS INCOME');
-    
+
     let totalIncome = 0;
     const now = new Date();
-    
+
     for (const business of this.businesses) {
       if (business.isBuilding) continue;
-      
+
       const timeDiff = now.getTime() - business.lastIncomeCollection.getTime();
       const hoursPassed = timeDiff / (1000 * 60 * 60);
       const income = Math.floor(business.currentIncome * hoursPassed);
-      
+
       if (income > 0) {
         totalIncome += income;
         business.totalEarnings += income;
         business.lastIncomeCollection = now;
       }
     }
-    
+
     if (totalIncome <= 0) {
       return { success: false, message: 'Henüz toplanacak gelir yok!' };
     }
@@ -1837,12 +1933,12 @@ class GameService {
     this.playerStats.totalEarnings += totalIncome;
 
     console.log('🏢 ALL INCOME COLLECTED:', 'Total:', totalIncome);
-    
+
     // Supabase'e kaydet
     this.savePlayerStatsToSupabase();
-    
-    return { 
-      success: true, 
+
+    return {
+      success: true,
       message: `Tüm işletme gelirleri toplandı: $${totalIncome.toLocaleString()}`,
       totalAmount: totalIncome
     };
@@ -1850,7 +1946,7 @@ class GameService {
 
 
 
-  
+
 
   assignCaporegimeToTerritory(territoryId: string, caporegimeId: string): { success: boolean; message: string } {
     return { success: false, message: 'Caporegime atama henüz mevcut değil.' };

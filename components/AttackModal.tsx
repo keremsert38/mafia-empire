@@ -1,0 +1,435 @@
+import React, { useState, useEffect } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    Modal,
+    TouchableOpacity,
+    ScrollView,
+    TextInput,
+    Alert,
+} from 'react-native';
+import { Search, Sword, X } from 'lucide-react-native';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+
+interface Player {
+    id: string;
+    username: string;
+}
+
+interface AttackModalProps {
+    visible: boolean;
+    onClose: () => void;
+    playerSoldiers: number;
+    onAttack: (targetId: string, targetName: string, soldiersToSend: number) => Promise<{ success: boolean; message: string }>;
+}
+
+export default function AttackModal({
+    visible,
+    onClose,
+    playerSoldiers,
+    onAttack
+}: AttackModalProps) {
+    const { user } = useAuth();
+    const [players, setPlayers] = useState<Player[]>([]);
+    const [filteredPlayers, setFilteredPlayers] = useState<Player[]>([]);
+    const [searchText, setSearchText] = useState('');
+    const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+    const [soldiersToSend, setSoldiersToSend] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (visible) {
+            loadPlayers();
+        }
+    }, [visible]);
+
+    useEffect(() => {
+        if (searchText.trim() === '') {
+            setFilteredPlayers(players);
+        } else {
+            const filtered = players.filter(p =>
+                p.username.toLowerCase().includes(searchText.toLowerCase())
+            );
+            setFilteredPlayers(filtered);
+        }
+    }, [searchText, players]);
+
+    const loadPlayers = async () => {
+        try {
+            setLoading(true);
+            const { data, error } = await supabase
+                .from('player_stats')
+                .select('id, username')
+                .neq('id', user?.id)
+                .order('username', { ascending: true })
+                .limit(100);
+
+            if (error) throw error;
+            setPlayers(data || []);
+            setFilteredPlayers(data || []);
+        } catch (error) {
+            console.error('Error loading players:', error);
+            Alert.alert('Hata', 'Oyuncular yüklenemedi!');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAttack = async () => {
+        if (!selectedPlayer) {
+            Alert.alert('Hata', 'Lütfen bir hedef seçin!');
+            return;
+        }
+
+        const soldiers = parseInt(soldiersToSend);
+        if (isNaN(soldiers) || soldiers <= 0) {
+            Alert.alert('Hata', 'Geçerli bir asker sayısı girin!');
+            return;
+        }
+
+        if (soldiers > playerSoldiers) {
+            Alert.alert('Yetersiz Asker', `Sadece ${playerSoldiers} askeriniz var!`);
+            return;
+        }
+
+        Alert.alert(
+            'Saldırı Onayla',
+            `${selectedPlayer.username} adlı oyuncuya ${soldiers} askerle saldırmak istediğinizden emin misiniz?`,
+            [
+                { text: 'İptal', style: 'cancel' },
+                {
+                    text: 'Saldır',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setLoading(true);
+                        try {
+                            const result = await onAttack(selectedPlayer.id, selectedPlayer.username, soldiers);
+                            if (result.success) {
+                                Alert.alert('Başarılı', result.message);
+                                setSelectedPlayer(null);
+                                setSoldiersToSend('');
+                                await loadPlayers();
+                            } else {
+                                Alert.alert('Hata', result.message);
+                            }
+                        } catch (error: any) {
+                            Alert.alert('Hata', error.message || 'Saldırı başarısız!');
+                        } finally {
+                            setLoading(false);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const adjustSoldiers = (change: number) => {
+        const current = parseInt(soldiersToSend) || 0;
+        const newValue = Math.max(0, Math.min(playerSoldiers, current + change));
+        setSoldiersToSend(newValue.toString());
+    };
+
+    return (
+        <Modal visible={visible} animationType="slide" transparent>
+            <View style={styles.overlay}>
+                <View style={styles.modal}>
+                    <View style={styles.header}>
+                        <View style={styles.headerContent}>
+                            <Sword size={24} color="#ff6b6b" />
+                            <Text style={styles.title}>Saldırı</Text>
+                        </View>
+                        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                            <X size={24} color="#999" />
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.content}>
+                        {/* Search Bar */}
+                        <View style={styles.searchContainer}>
+                            <Search size={20} color="#999" />
+                            <TextInput
+                                style={styles.searchInput}
+                                placeholder="Oyuncu ara..."
+                                placeholderTextColor="#666"
+                                value={searchText}
+                                onChangeText={setSearchText}
+                            />
+                        </View>
+
+                        {/* Player Stats */}
+                        <View style={styles.statsCard}>
+                            <Text style={styles.statsLabel}>Mevcut Askerleriniz:</Text>
+                            <Text style={styles.statsValue}>{playerSoldiers}</Text>
+                        </View>
+
+                        {/* Selected Player */}
+                        {selectedPlayer && (
+                            <View style={styles.selectedPlayerCard}>
+                                <Text style={styles.sectionTitle}>Seçilen Hedef:</Text>
+                                <Text style={styles.playerName}>{selectedPlayer.username}</Text>
+
+                                {/* Soldier Input */}
+                                <View style={styles.soldierInputSection}>
+                                    <Text style={styles.sectionTitle}>Kaç Asker?</Text>
+                                    <View style={styles.counter}>
+                                        <TouchableOpacity
+                                            style={styles.counterButton}
+                                            onPress={() => adjustSoldiers(-10)}
+                                        >
+                                            <Text style={styles.counterButtonText}>-10</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={styles.counterButton}
+                                            onPress={() => adjustSoldiers(-1)}
+                                        >
+                                            <Text style={styles.counterButtonText}>-</Text>
+                                        </TouchableOpacity>
+                                        <TextInput
+                                            style={styles.soldierInput}
+                                            value={soldiersToSend}
+                                            onChangeText={setSoldiersToSend}
+                                            keyboardType="numeric"
+                                            placeholder="0"
+                                            placeholderTextColor="#666"
+                                        />
+                                        <TouchableOpacity
+                                            style={styles.counterButton}
+                                            onPress={() => adjustSoldiers(1)}
+                                        >
+                                            <Text style={styles.counterButtonText}>+</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={styles.counterButton}
+                                            onPress={() => adjustSoldiers(10)}
+                                        >
+                                            <Text style={styles.counterButtonText}>+10</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                {/* Attack Button */}
+                                <TouchableOpacity
+                                    style={[
+                                        styles.attackButton,
+                                        (loading || !soldiersToSend || parseInt(soldiersToSend) <= 0) && styles.attackButtonDisabled
+                                    ]}
+                                    onPress={handleAttack}
+                                    disabled={loading || !soldiersToSend || parseInt(soldiersToSend) <= 0}
+                                >
+                                    <Sword size={20} color="#fff" />
+                                    <Text style={styles.attackButtonText}>
+                                        {loading ? 'Saldırılıyor...' : 'Saldır!'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        {/* Player List */}
+                        <Text style={styles.sectionTitle}>Oyuncular:</Text>
+                        <ScrollView style={styles.playerList} showsVerticalScrollIndicator={false}>
+                            {loading && players.length === 0 ? (
+                                <Text style={styles.loadingText}>Yükleniyor...</Text>
+                            ) : filteredPlayers.length === 0 ? (
+                                <Text style={styles.emptyText}>Oyuncu bulunamadı</Text>
+                            ) : (
+                                filteredPlayers.map((player) => (
+                                    <TouchableOpacity
+                                        key={player.id}
+                                        style={[
+                                            styles.playerItem,
+                                            selectedPlayer?.id === player.id && styles.playerItemSelected
+                                        ]}
+                                        onPress={() => {
+                                            setSelectedPlayer(player);
+                                            setSoldiersToSend('');
+                                        }}
+                                    >
+                                        <Text style={styles.playerItemName}>{player.username}</Text>
+                                    </TouchableOpacity>
+                                ))
+                            )}
+                        </ScrollView>
+                    </View>
+                </View>
+            </View>
+        </Modal>
+    );
+}
+
+const styles = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modal: {
+        backgroundColor: '#1a1a1a',
+        borderRadius: 15,
+        width: '95%',
+        height: '85%',
+        borderWidth: 2,
+        borderColor: '#ff6b6b',
+        marginTop: 60,
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 15,
+        borderBottomWidth: 1,
+        borderBottomColor: '#333',
+    },
+    headerContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#ff6b6b',
+    },
+    closeButton: {
+        padding: 5,
+    },
+    content: {
+        flex: 1,
+        padding: 15,
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#2a2a2a',
+        borderRadius: 10,
+        paddingHorizontal: 15,
+        marginBottom: 15,
+        gap: 10,
+    },
+    searchInput: {
+        flex: 1,
+        color: '#fff',
+        fontSize: 16,
+        paddingVertical: 12,
+    },
+    statsCard: {
+        backgroundColor: '#2a2a2a',
+        borderRadius: 10,
+        padding: 15,
+        marginBottom: 15,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    statsLabel: {
+        color: '#999',
+        fontSize: 14,
+    },
+    statsValue: {
+        color: '#4ecdc4',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    selectedPlayerCard: {
+        backgroundColor: '#2a1a1a',
+        borderRadius: 10,
+        padding: 15,
+        marginBottom: 15,
+        borderWidth: 2,
+        borderColor: '#ff6b6b',
+    },
+    sectionTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#d4af37',
+        marginBottom: 10,
+    },
+    playerName: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#fff',
+        marginBottom: 15,
+    },
+    soldierInputSection: {
+        marginBottom: 15,
+    },
+    counter: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 5,
+    },
+    counterButton: {
+        backgroundColor: '#333',
+        padding: 10,
+        borderRadius: 8,
+        minWidth: 40,
+        alignItems: 'center',
+    },
+    counterButtonText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    soldierInput: {
+        backgroundColor: '#333',
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        borderRadius: 8,
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        minWidth: 80,
+    },
+    attackButton: {
+        backgroundColor: '#ff6b6b',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 15,
+        borderRadius: 10,
+        gap: 10,
+    },
+    attackButtonDisabled: {
+        backgroundColor: '#666',
+        opacity: 0.6,
+    },
+    attackButtonText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    playerList: {
+        flex: 1,
+    },
+    loadingText: {
+        color: '#999',
+        textAlign: 'center',
+        marginTop: 20,
+    },
+    emptyText: {
+        color: '#999',
+        textAlign: 'center',
+        marginTop: 20,
+    },
+    playerItem: {
+        backgroundColor: '#2a2a2a',
+        borderRadius: 10,
+        padding: 15,
+        marginBottom: 10,
+        borderWidth: 1,
+        borderColor: '#333',
+    },
+    playerItemSelected: {
+        borderColor: '#ff6b6b',
+        backgroundColor: '#2a1a1a',
+    },
+    playerItemName: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#fff',
+    },
+});

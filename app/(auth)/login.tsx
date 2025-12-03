@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -46,11 +47,11 @@ export default function LoginScreen() {
     if (isMounted.current) {
       setLoading(true);
     }
-    
+
     const { error } = await signIn(email, password);
-    
+
     if (!isMounted.current) return;
-    
+
     setLoading(false);
 
     if (error) {
@@ -61,8 +62,8 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container} 
+    <KeyboardAvoidingView
+      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>

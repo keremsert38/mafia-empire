@@ -65,7 +65,7 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
 
   const handleCommitCrime = (crime: Crime) => {
     console.log('🔥 HANDLE COMMIT CRIME CALLED:', crime.name);
-    
+
     if (isCommittingCrime) {
       Alert.alert('İş İşleniyor', `Şu anda başka bir İş işliyorsunuz! ${activeCrimeTimeRemaining} saniye kaldı.`);
       return;
@@ -85,12 +85,21 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
     }
 
     console.log('✅ All checks passed, showing confirmation dialog');
-    
-    // Directly execute the crime without Alert confirmation
-    console.log('🔥 EXECUTING CRIME DIRECTLY:', crime.name);
+
+    // Execute the crime
+    console.log('🔥 EXECUTING CRIME:', crime.name);
     try {
       const result = onCommitCrime(crime.id);
       console.log('🔥 CRIME EXECUTION RESULT:', result);
+
+      if (result.success) {
+        // Show success alert with details
+        Alert.alert(
+          '✓ İş Başlatıldı!',
+          `${crime.name} işleniyor...\n\n⏱️ Süre: ${formatTime(crime.duration)}\n💵 Tahmini Kazanç: $${Math.floor(crime.baseReward * (1 + (playerLevel - crime.requiredLevel) * 0.1)).toLocaleString()}\n⭐ Tahmini XP: ${Math.floor(crime.baseXP * (1 + (playerLevel - crime.requiredLevel) * 0.1))}\n🎯 Başarı Oranı: %${crime.successRate}`,
+          [{ text: 'Tamam', style: 'default' }]
+        );
+      }
     } catch (error) {
       console.error('🔥 CRIME EXECUTION ERROR:', error);
     }
@@ -123,9 +132,9 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
                   ]}
                   onPress={() => setSelectedCategory(category.id as any)}
                 >
-                  <IconComponent 
-                    size={16} 
-                    color={selectedCategory === category.id ? category.color : '#666'} 
+                  <IconComponent
+                    size={16}
+                    color={selectedCategory === category.id ? category.color : '#666'}
                   />
                   <Text style={[
                     styles.categoryTabText,
@@ -148,7 +157,7 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
                 </Text>
               </View>
             )}
-            
+
             {filteredCrimes.map(crime => {
               const isLocked = playerLevel < crime.requiredLevel;
               const cooldownRemaining = getCooldownRemaining(crime);
@@ -194,7 +203,7 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
                         <Text style={styles.statText}>{crime.energyCost} enerji</Text>
                       </View>
                     </View>
-                    
+
                     <View style={styles.statRow}>
                       <View style={styles.statItem}>
                         <Text style={styles.requirementText}>

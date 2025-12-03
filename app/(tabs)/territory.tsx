@@ -19,12 +19,15 @@ import {
 } from 'lucide-react-native';
 import { useGameService } from '@/hooks/useGameService';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import TerritoryAttackModal from '@/components/TerritoryAttackModal';
 import TerritoryReinforceModal from '@/components/TerritoryReinforceModal';
 
 export default function TerritoryScreen() {
   const { gameService, playerStats, territories, attackRegion, claimIncome } = useGameService();
   const { t } = useLanguage();
+  const { user } = useAuth();
   const [selectedTerritory, setSelectedTerritory] = useState<string | null>(null);
   const [attackModalVisible, setAttackModalVisible] = useState(false);
   const [reinforceModalVisible, setReinforceModalVisible] = useState(false);
@@ -76,6 +79,28 @@ export default function TerritoryScreen() {
   const handleClaimIncome = async () => {
     const res = await claimIncome();
     Alert.alert(res.success ? 'Gelir Alındı' : 'Hata', res.message);
+  };
+
+  const attackRivalFamilyTerritory = async (territoryId: string, soldiersToSend: number) => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase.rpc('attack_rival_family_territory', {
+        p_target_territory: territoryId,
+        p_attacking_soldiers: soldiersToSend
+      });
+
+      if (error) throw error;
+
+      const result = data?.[0] || data;
+      Alert.alert(
+        result?.success ? 'Saldırı Başarılı!' : 'Saldırı Başarısız!', 
+        result?.message || 'Saldırı tamamlandı'
+      );
+    } catch (error: any) {
+      console.error('Error attacking rival territory:', error);
+      Alert.alert('Hata', error.message || 'Saldırı yapılamadı!');
+    }
   };
 
   const getStatusColor = (status: string) => {

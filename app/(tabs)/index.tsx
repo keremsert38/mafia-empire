@@ -31,6 +31,9 @@ import LeaderboardModal from '@/components/LeaderboardModal';
 import NotificationSystem from '@/components/NotificationSystem';
 import ChatModal from '@/components/ChatModal';
 import SoldierHiringModal from '@/components/SoldierHiringModal';
+import AttackModal from '@/components/AttackModal';
+import NotificationsModal from '@/components/NotificationsModal';
+import ProfileEditModal from '@/components/ProfileEditModal';
 import { useLanguage } from '@/contexts/LanguageContext';
 
 import { router } from 'expo-router';
@@ -49,26 +52,40 @@ export default function HomeScreen() {
   const [leaderboardModalVisible, setLeaderboardModalVisible] = useState(false);
   const [chatModalVisible, setChatModalVisible] = useState(false);
   const [soldierModalVisible, setSoldierModalVisible] = useState(false);
+  const [attackModalVisible, setAttackModalVisible] = useState(false);
+
+  const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [accumulatedIncome, setAccumulatedIncome] = useState(0);
   const [lastIncomeUpdate, setLastIncomeUpdate] = useState(Date.now());
+  const [totalBusinessIncome, setTotalBusinessIncome] = useState(0);
+  const [totalTerritoryIncome, setTotalTerritoryIncome] = useState(0);
+  const [totalHourlyIncome, setTotalHourlyIncome] = useState(0);
 
   // Gerçek zamanlı gelir hesaplama
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
       const timeDiff = (now - lastIncomeUpdate) / 1000; // saniye cinsinden
-      const totalBusinessIncome = businesses.reduce((sum, b) => sum + (b.isBuilding ? 0 : b.currentIncome), 0);
-      const totalTerritoryIncome = territories.filter(t => t.status === 'owned').reduce((sum, t) => sum + t.income, 0);
-      const totalHourlyIncome = totalBusinessIncome + totalTerritoryIncome;
-      
-      if (totalHourlyIncome > 0) {
-        const incomePerSecond = totalHourlyIncome / 3600; // saatlik geliri saniyeye çevir
+      // Sadece sahip olunan işletmeleri hesapla
+      const ownedBusinesses = businesses.filter(b => b.level > 0);
+      const businessIncome = ownedBusinesses.reduce((sum, b) => sum + (b.isBuilding ? 0 : b.currentIncome), 0);
+      const territoryIncome = territories.filter(t => t.status === 'owned').reduce((sum, t) => sum + t.income, 0);
+      const hourlyIncome = businessIncome + territoryIncome;
+
+      // Update state for display
+      setTotalBusinessIncome(businessIncome);
+      setTotalTerritoryIncome(territoryIncome);
+      setTotalHourlyIncome(hourlyIncome);
+
+      if (hourlyIncome > 0) {
+        const incomePerSecond = hourlyIncome / 3600; // saatlik geliri saniyeye çevir
         const newIncome = incomePerSecond * timeDiff;
         setAccumulatedIncome(prev => prev + newIncome);
       }
-      
+
       setLastIncomeUpdate(now);
     }, 1000); // Her saniye güncelle
 
@@ -85,26 +102,7 @@ export default function HomeScreen() {
     setNotifications(prev => [...prev, notification]);
   };
 
-  // Gerçek zamanlı gelir hesaplama
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const timeDiff = (now - lastIncomeUpdate) / 1000; // saniye cinsinden
-      const totalBusinessIncome = businesses.reduce((sum, b) => sum + (b.isBuilding ? 0 : b.currentIncome), 0);
-      const totalTerritoryIncome = territories.filter(t => t.status === 'owned').reduce((sum, t) => sum + t.income, 0);
-      const totalHourlyIncome = totalBusinessIncome + totalTerritoryIncome;
-      
-      if (totalHourlyIncome > 0) {
-        const incomePerSecond = totalHourlyIncome / 3600; // saatlik geliri saniyeye çevir
-        const newIncome = incomePerSecond * timeDiff;
-        setAccumulatedIncome(prev => prev + newIncome);
-      }
-      
-      setLastIncomeUpdate(now);
-    }, 1000); // Her saniye güncelle
 
-    return () => clearInterval(interval);
-  }, [businesses, territories, lastIncomeUpdate]);
   const dismissNotification = (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
@@ -122,6 +120,14 @@ export default function HomeScreen() {
     } else {
       addNotification('error', result.message);
     }
+    return result;
+  };
+
+  const handlePlayerAttack = async (targetId: string, targetName: string, soldiersToSend: number) => {
+    console.log('🔥 HANDLE PLAYER ATTACK:', { targetId, targetName, soldiersToSend });
+    const result = await gameService.attackPlayer(targetId, targetName, soldiersToSend);
+    console.log('🔥 ATTACK RESULT:', result);
+
     return result;
   };
 
@@ -146,13 +152,13 @@ export default function HomeScreen() {
     console.log('🔥 CRIME BUTTON PRESSED! Crime ID:', crimeId);
     const result = gameService.commitCrime(crimeId);
     console.log('🔥 CRIME RESULT:', result);
-    
+
     if (result.success) {
       addNotification('success', t.home.crimeSuccess.replace('{reward}', `$${result.reward?.toLocaleString() || '0'}`).replace('{xp}', result.xp?.toString() || '0'));
     } else {
       addNotification('error', result.message);
     }
-    
+
     return result;
   };
   const formatNumber = (num: number) => {
@@ -172,21 +178,22 @@ export default function HomeScreen() {
     return `${days}${t.home.daysAgo}`;
   };
 
-  const totalBusinessIncome = businesses.reduce((sum, b) => sum + (b.isBuilding ? 0 : b.currentIncome), 0);
-  const totalTerritoryIncome = territories.filter(t => t.status === 'owned').reduce((sum, t) => sum + t.income, 0);
-  const totalHourlyIncome = totalBusinessIncome + totalTerritoryIncome;
+
 
   return (
     <View style={styles.container}>
-      <NotificationSystem 
-        notifications={notifications} 
-        onDismiss={dismissNotification} 
+      <NotificationSystem
+        notifications={notifications}
+        onDismiss={dismissNotification}
       />
-      
+
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <View style={styles.playerInfo}>
+          <TouchableOpacity
+            style={styles.playerInfo}
+            onPress={() => setProfileModalVisible(true)}
+          >
             <Image
               source={{ uri: playerStats.profileImage || 'https://images.pexels.com/photos/1043471/pexels-photo-1043471.jpeg?auto=compress&cs=tinysrgb&w=80&h=80&fit=crop' }}
               style={styles.avatar}
@@ -199,18 +206,18 @@ export default function HomeScreen() {
                 <Text style={styles.playerLevel}>{t.home.level} {playerStats.level}</Text>
               </View>
             </View>
-          </View>
+          </TouchableOpacity>
           <View style={styles.headerButtons}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.shopButton}
               onPress={() => router.push('/shop')}
             >
               <ShoppingCart size={20} color="#d4af37" />
             </TouchableOpacity>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={styles.notificationButton}
-              onPress={() => addNotification('info', t.home.notificationsComingSoon)}
+              onPress={() => setNotificationsModalVisible(true)}
             >
               <Bell size={20} color="#d4af37" />
             </TouchableOpacity>
@@ -256,8 +263,8 @@ export default function HomeScreen() {
               {t.home.hourly}: ${formatNumber(totalHourlyIncome)}
             </Text>
           </View>
-          <TouchableOpacity 
-            style={[styles.collectButton, accumulatedIncome < 1 && styles.collectButtonDisabled]} 
+          <TouchableOpacity
+            style={[styles.collectButton, accumulatedIncome < 1 && styles.collectButtonDisabled]}
             onPress={collectIncome}
             disabled={accumulatedIncome < 1}
           >
@@ -272,7 +279,7 @@ export default function HomeScreen() {
         <View style={styles.quickActions}>
           <Text style={styles.sectionTitle}>{t.home.quickActions}</Text>
           <View style={styles.actionGrid}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.actionButton}
               onPress={() => {
                 if (isCommittingCrime) {
@@ -288,16 +295,16 @@ export default function HomeScreen() {
                 {isCommittingCrime ? `${t.home.committingCrime} (${activeCrimeTimeRemaining}s)` : t.home.commitCrime}
               </Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={styles.actionButton}
               onPress={hireSoldiers}
             >
               <Users size={24} color="#4ecdc4" />
               <Text style={styles.actionText}>{t.home.hireSoldiers}</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={styles.actionButton}
               onPress={() => {
                 console.log('🏆 LEADERBOARD BUTTON PRESSED');
@@ -307,13 +314,21 @@ export default function HomeScreen() {
               <Crown size={24} color="#d4af37" />
               <Text style={styles.actionText}>{t.home.leaderboard}</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity 
+
+            <TouchableOpacity
               style={styles.actionButton}
               onPress={() => setChatModalVisible(true)}
             >
               <MessageCircle size={24} color="#66bb6a" />
               <Text style={styles.actionText}>{t.home.generalChat}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => setAttackModalVisible(true)}
+            >
+              <Sword size={24} color="#ff6b6b" />
+              <Text style={styles.actionText}>Saldırı</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -321,13 +336,13 @@ export default function HomeScreen() {
         {/* Empire Overview */}
         <View style={styles.empireOverview}>
           <Text style={styles.sectionTitle}>{t.home.empireStatus}</Text>
-          
+
           <View style={styles.overviewCard}>
             <View style={styles.overviewHeader}>
               <Building size={20} color="#66bb6a" />
               <Text style={styles.overviewTitle}>{t.home.businesses}</Text>
             </View>
-            <Text style={styles.overviewValue}>{businesses.length} {t.home.active}</Text>
+            <Text style={styles.overviewValue}>{businesses.filter(b => b.level > 0).length} {t.home.active}</Text>
             <Text style={styles.overviewDetail}>
               {businesses.filter(b => b.isBuilding).length} {t.home.underConstruction}
             </Text>
@@ -386,7 +401,31 @@ export default function HomeScreen() {
         onHireSoldiers={handleHireSoldiers}
       />
 
+      <AttackModal
+        visible={attackModalVisible}
+        onClose={() => setAttackModalVisible(false)}
+        playerSoldiers={playerStats.soldiers}
+        onAttack={handlePlayerAttack}
+      />
+      <NotificationsModal
+        visible={notificationsModalVisible}
+        onClose={() => setNotificationsModalVisible(false)}
+      />
 
+      <ProfileEditModal
+        visible={profileModalVisible}
+        onClose={() => setProfileModalVisible(false)}
+        username={playerStats.name}
+        currentPhotoUrl={playerStats.profileImage}
+        onPhotoSelected={async (uri) => {
+          const result = await gameService.uploadProfilePhoto(uri);
+          if (result.success) {
+            addNotification('success', result.message);
+          } else {
+            addNotification('error', result.message);
+          }
+        }}
+      />
     </View>
   );
 }

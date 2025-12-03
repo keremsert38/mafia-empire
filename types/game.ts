@@ -160,9 +160,9 @@ export interface Crime {
   id: string;
   name: string;
   description: string;
-  minReward: number;
-  maxReward: number;
-  experienceReward: number;
+  minReward?: number;
+  maxReward?: number;
+  experienceReward?: number;
   energyCost: number;
   successRate: number;
   requiredLevel: number;
@@ -170,8 +170,8 @@ export interface Crime {
   duration: number;
   baseReward: number;
   baseXP: number;
-  riskLevel: 'low' | 'medium' | 'high';
-  category: 'street' | 'business' | 'political' | 'international';
+  riskLevel?: 'low' | 'medium' | 'high';
+  category?: 'street' | 'business' | 'political' | 'international';
   lastUsed?: Date;
 }
 
