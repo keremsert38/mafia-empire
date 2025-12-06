@@ -15,7 +15,7 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "android": {
-      "package": "com.kerem.boltexponativewind",
+      "package": "com.mafiaempire.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#000000"

@@ -28,7 +28,7 @@
         "autoIncrement": true
       },
       "android": {
-        "buildType": "apk"
+        "buildType": "app-bundle"
       }
     }
   },
