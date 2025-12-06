@@ -2102,11 +2102,11 @@ function FamilyScreen() {
         onRequestClose={() => setShowViewMembersModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { maxHeight: '85%', minHeight: 400 }]}>
             <View style={styles.modalHeader}>
               <Users size={24} color="#d4af37" />
               <Text style={styles.modalTitle}>
-                {selectedFamilyToView?.name} - Üyeler
+                {selectedFamilyToView?.name || 'Aile'} - Üyeler
               </Text>
               <TouchableOpacity onPress={() => setShowViewMembersModal(false)}>
                 <X size={24} color="#fff" />
@@ -2133,17 +2133,21 @@ function FamilyScreen() {
                       <View style={styles.viewMemberInfo}>
                         <Text style={styles.viewMemberName}>{member.player_name || 'Oyuncu'}</Text>
                         <View style={styles.viewMemberRole}>
-                          <Text style={styles.viewMemberRoleIcon}>{getRoleIcon(member.role)}</Text>
-                          <Text style={styles.viewMemberRoleText}>{getRoleName(member.role)}</Text>
+                          <Text style={styles.viewMemberRoleIcon}>
+                            {member.role === 'leader' ? '👑' : member.role === 'consigliere' ? '🎩' : member.role === 'sottocapo' ? '⚔️' : member.role === 'capo' ? '⭐' : member.role === 'caporegime' ? '🎖️' : '👤'}
+                          </Text>
+                          <Text style={styles.viewMemberRoleText}>
+                            {member.role === 'leader' ? 'Lider' : member.role === 'consigliere' ? 'Consigliere' : member.role === 'sottocapo' ? 'Sottocapo' : member.role === 'capo' ? 'Capo' : member.role === 'caporegime' ? 'Caporegime' : 'Soldato'}
+                          </Text>
                         </View>
                         <Text style={styles.viewMemberContribution}>
                           Katkı: {(member.contribution || 0).toLocaleString()}
                         </Text>
-                        {member.assigned_soldiers && member.assigned_soldiers > 0 && (
+                        {Number(member.assigned_soldiers || 0) > 0 ? (
                           <Text style={styles.viewMemberSoldiers}>
-                            🪖 Atanmış Soldato: {member.assigned_soldiers.toLocaleString()}
+                            🪖 Atanmış Soldato: {(member.assigned_soldiers || 0).toLocaleString()}
                           </Text>
-                        )}
+                        ) : null}
                       </View>
                       <View style={styles.viewMemberStats}>
                         <Text style={styles.viewMemberLevel}>Lvl {member.player_level || 1}</Text>
@@ -3772,6 +3776,17 @@ const styles = StyleSheet.create({
   dropdownItemSelected: {
     backgroundColor: '#3a2a1a',
     borderColor: '#d4af37',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  loadingText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 10,
   },
 
 });

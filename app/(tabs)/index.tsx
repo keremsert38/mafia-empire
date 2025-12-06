@@ -208,12 +208,20 @@ export default function HomeScreen() {
             </View>
           </TouchableOpacity>
           <View style={styles.headerButtons}>
+            {/* MT Coins Display */}
+            <View style={styles.mtContainer}>
+              <Text style={styles.mtIcon}>💎</Text>
+              <Text style={styles.mtText}>{playerStats.mtCoins || 0}</Text>
+            </View>
+
+            {/* Shop button hidden for now
             <TouchableOpacity
               style={styles.shopButton}
               onPress={() => router.push('/shop')}
             >
               <ShoppingCart size={20} color="#d4af37" />
             </TouchableOpacity>
+            */}
 
             <TouchableOpacity
               style={styles.notificationButton}
@@ -508,6 +516,24 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 20,
     marginRight: 10,
+  },
+  mtContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2a1a4a',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 15,
+    marginRight: 8,
+  },
+  mtIcon: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  mtText: {
+    color: '#a855f7',
+    fontSize: 13,
+    fontWeight: 'bold',
   },
   notificationButton: {
     backgroundColor: '#1a1a1a',

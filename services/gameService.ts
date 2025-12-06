@@ -569,7 +569,7 @@ class GameService {
       profileImage: undefined,
       passiveIncome: 0,
       lastIncomeCollection: new Date(),
-      mtCoins: 0,
+      mtCoins: 500,
     };
   }
 

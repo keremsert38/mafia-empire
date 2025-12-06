@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import {
   X,
@@ -228,6 +229,26 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
   },
+  playerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  playerAvatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#2a2a2a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  playerAvatarText: {
+    color: '#d4af37',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });
 
 export default function LeaderboardModal({ visible, onClose }: LeaderboardModalProps) {
@@ -241,19 +262,19 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
   const fetchLeaderboard = useCallback(async (type: 'level' | 'respect' | 'territories'): Promise<void> => {
     if (refreshing) return;
     setLoading(true);
-    
+
     try {
       const { data, error } = await supabase.rpc('get_leaderboard_by_type', {
         leaderboard_type: type,
         limit_count: 100
       });
-      
+
       if (error) {
         console.error('Leaderboard error:', error);
         Alert.alert('Hata', 'Sıralama verileri yüklenemedi.');
         return;
       }
-      
+
       setLeaderboard(data || []);
       setLastUpdate(new Date());
     } catch (error) {
@@ -272,12 +293,12 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
 
   useEffect(() => {
     if (!visible) return;
-    
+
     fetchLeaderboard(activeTab);
     const intervalId = setInterval(() => {
       setRefreshing(true);
       fetchLeaderboard(activeTab);
-    }, 30000);
+    }, 10000);
 
     return () => {
       clearInterval(intervalId);
@@ -388,7 +409,7 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
               </View>
             ) : (
               leaderboard.map((player) => (
-                <TouchableOpacity 
+                <TouchableOpacity
                   key={player.player_id}
                   style={[
                     styles.playerRow,
@@ -404,7 +425,21 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
                       <Text style={styles.position}>{player.player_rank}</Text>
                     )}
                   </View>
-                  
+
+                  {/* Profile Photo */}
+                  {player.profile_image ? (
+                    <Image
+                      source={{ uri: player.profile_image }}
+                      style={styles.playerAvatar}
+                    />
+                  ) : (
+                    <View style={styles.playerAvatarPlaceholder}>
+                      <Text style={styles.playerAvatarText}>
+                        {(player.player_name || 'O').charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+
                   <View style={styles.playerInfo}>
                     <View style={styles.nameContainer}>
                       <Text style={[
@@ -417,7 +452,7 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
                         <Circle size={8} color="#4caf50" fill="#4caf50" style={{ marginLeft: 5 }} />
                       )}
                     </View>
-                    
+
                     <View style={styles.playerDetails}>
                       <Text style={styles.playerRank}>
                         {player.rank_name} - Seviye {player.player_level}
@@ -442,7 +477,7 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
                       )}
                     </View>
                   </View>
-                  
+
                   <View style={styles.scoreContainer}>
                     <Text style={[
                       styles.score,
@@ -459,7 +494,7 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>
-              İlk 100 oyuncu gösteriliyor • Her 30 saniyede bir güncellenir
+              İlk 100 oyuncu gösteriliyor • Her 10 saniyede bir güncellenir
             </Text>
           </View>
         </View>

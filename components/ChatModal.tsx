@@ -31,7 +31,6 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Mesajları yükle
@@ -58,10 +57,7 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
     }
   };
 
-  // Online kullanıcı sayısını güncelle (basit simülasyon)
-  const updateOnlineUsers = () => {
-    setOnlineUsers(Math.floor(Math.random() * 20) + 5); // 5-25 arası random
-  };
+
 
   // Mesaj gönder
   const sendMessage = async () => {
@@ -70,7 +66,7 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
     setLoading(true);
     try {
       const username = user.user_metadata?.username || user.email?.split('@')[0] || 'Anonim';
-      
+
       const { error } = await supabase
         .from('chat_messages')
         .insert({
@@ -99,7 +95,6 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
     if (!visible) return;
 
     loadMessages();
-    updateOnlineUsers();
 
     // Real-time subscription
     const subscription = supabase
@@ -122,20 +117,16 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
       )
       .subscribe();
 
-    // Online users güncelleme
-    const onlineInterval = setInterval(updateOnlineUsers, 30000); // 30 saniyede bir
-
     return () => {
       subscription.unsubscribe();
-      clearInterval(onlineInterval);
     };
   }, [visible]);
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleTimeString('tr-TR', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return date.toLocaleTimeString('tr-TR', {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
@@ -154,10 +145,6 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
               <Text style={styles.title}>Genel Sohbet</Text>
             </View>
             <View style={styles.headerRight}>
-              <View style={styles.onlineIndicator}>
-                <Users size={16} color="#66bb6a" />
-                <Text style={styles.onlineText}>{onlineUsers} online</Text>
-              </View>
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
                 <X size={24} color="#999" />
               </TouchableOpacity>
@@ -165,14 +152,14 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
           </View>
 
           {/* Messages */}
-          <ScrollView 
+          <ScrollView
             ref={scrollViewRef}
             style={styles.messagesContainer}
             showsVerticalScrollIndicator={false}
           >
             {messages.map((message) => (
-              <View 
-                key={message.id} 
+              <View
+                key={message.id}
                 style={[
                   styles.messageContainer,
                   isMyMessage(message) ? styles.myMessage : styles.otherMessage
@@ -211,8 +198,8 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
               maxLength={500}
               onSubmitEditing={sendMessage}
             />
-            <TouchableOpacity 
-              style={[styles.sendButton, loading && styles.sendButtonDisabled]} 
+            <TouchableOpacity
+              style={[styles.sendButton, loading && styles.sendButtonDisabled]}
               onPress={sendMessage}
               disabled={loading || !newMessage.trim()}
             >
