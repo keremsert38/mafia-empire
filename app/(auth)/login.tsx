@@ -10,6 +10,7 @@ import {
   Platform,
   Image,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,7 +24,9 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const isMounted = useRef(true);
   const { signIn } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+
+  const PRIVACY_POLICY_URL = 'https://www.freeprivacypolicy.com/live/130e04d6-c887-478f-be92-a079f140f492';
 
   useEffect(() => {
     return () => {
@@ -142,6 +145,11 @@ export default function LoginScreen() {
           <Text style={styles.footerText}>
             {t.auth.loginTerms}
           </Text>
+          <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+            <Text style={styles.privacyLink}>
+              {language === 'tr' ? 'Gizlilik Politikası' : 'Privacy Policy'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -257,5 +265,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  privacyLink: {
+    color: '#4ecdc4',
+    fontSize: 12,
+    marginTop: 10,
+    textDecorationLine: 'underline',
   },
 });

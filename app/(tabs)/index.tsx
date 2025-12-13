@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   Alert,
   Image,
+  Modal,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import {
   Crown,
@@ -56,6 +59,9 @@ export default function HomeScreen() {
 
   const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [mtConversionModalVisible, setMtConversionModalVisible] = useState(false);
+  const [mtConversionAmount, setMtConversionAmount] = useState('1');
+  const [mtConversionLoading, setMtConversionLoading] = useState(false);
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [accumulatedIncome, setAccumulatedIncome] = useState(0);
@@ -63,9 +69,35 @@ export default function HomeScreen() {
   const [totalBusinessIncome, setTotalBusinessIncome] = useState(0);
   const [totalTerritoryIncome, setTotalTerritoryIncome] = useState(0);
   const [totalHourlyIncome, setTotalHourlyIncome] = useState(0);
+  const [incomeLoaded, setIncomeLoaded] = useState(false);
 
-  // Gerçek zamanlı gelir hesaplama
+  // Uygulama açıldığında biriken geliri Supabase'den yükle
   useEffect(() => {
+    const loadAccumulatedIncome = async () => {
+      if (incomeLoaded) return;
+
+      try {
+        const serverIncome = await gameService.getAccumulatedIncome();
+        if (serverIncome.accumulatedAmount > 0) {
+          setAccumulatedIncome(serverIncome.accumulatedAmount);
+          setTotalBusinessIncome(serverIncome.businessIncome);
+          setTotalTerritoryIncome(serverIncome.territoryIncome);
+          setTotalHourlyIncome(serverIncome.hourlyRate);
+        }
+        setIncomeLoaded(true);
+      } catch (error) {
+        console.error('Error loading accumulated income:', error);
+        setIncomeLoaded(true);
+      }
+    };
+
+    loadAccumulatedIncome();
+  }, [gameService, incomeLoaded]);
+
+  // Gerçek zamanlı gelir hesaplama (uygulama açıkken)
+  useEffect(() => {
+    if (!incomeLoaded) return; // Server income yüklenene kadar bekle
+
     const interval = setInterval(() => {
       const now = Date.now();
       const timeDiff = (now - lastIncomeUpdate) / 1000; // saniye cinsinden
@@ -90,7 +122,7 @@ export default function HomeScreen() {
     }, 1000); // Her saniye güncelle
 
     return () => clearInterval(interval);
-  }, [businesses, territories, lastIncomeUpdate]);
+  }, [businesses, territories, lastIncomeUpdate, incomeLoaded]);
 
   const addNotification = (type: 'success' | 'error' | 'info', message: string) => {
     const notification: Notification = {
@@ -133,15 +165,24 @@ export default function HomeScreen() {
 
 
 
-  const collectIncome = () => {
+
+  const collectIncome = async () => {
     if (accumulatedIncome > 0) {
-      const incomeToCollect = Math.floor(accumulatedIncome);
-      const result = gameService.collectAccumulatedIncome(incomeToCollect);
+      // Server-side gelir toplama (persist için)
+      const result = await gameService.collectAccumulatedIncomeFromServer();
       if (result.success) {
         setAccumulatedIncome(0);
-        addNotification('success', t.home.incomeCollected.replace('{amount}', `$${incomeToCollect.toLocaleString()}`));
+        addNotification('success', t.home.incomeCollected.replace('{amount}', `$${result.amount.toLocaleString()}`));
       } else {
-        addNotification('error', result.message);
+        // Fallback: client-side toplama
+        const incomeToCollect = Math.floor(accumulatedIncome);
+        const fallbackResult = gameService.collectAccumulatedIncome(incomeToCollect);
+        if (fallbackResult.success) {
+          setAccumulatedIncome(0);
+          addNotification('success', t.home.incomeCollected.replace('{amount}', `$${incomeToCollect.toLocaleString()}`));
+        } else {
+          addNotification('error', fallbackResult.message);
+        }
       }
     } else {
       addNotification('info', t.home.noIncomeToCollect);
@@ -208,11 +249,14 @@ export default function HomeScreen() {
             </View>
           </TouchableOpacity>
           <View style={styles.headerButtons}>
-            {/* MT Coins Display */}
-            <View style={styles.mtContainer}>
+            {/* MT Coins Display - Clickable for conversion */}
+            <TouchableOpacity
+              style={styles.mtContainer}
+              onPress={() => setMtConversionModalVisible(true)}
+            >
               <Text style={styles.mtIcon}>💎</Text>
               <Text style={styles.mtText}>{playerStats.mtCoins || 0}</Text>
-            </View>
+            </TouchableOpacity>
 
             {/* Shop button hidden for now
             <TouchableOpacity
@@ -336,7 +380,7 @@ export default function HomeScreen() {
               onPress={() => setAttackModalVisible(true)}
             >
               <Sword size={24} color="#ff6b6b" />
-              <Text style={styles.actionText}>Saldırı</Text>
+              <Text style={styles.actionText}>{t.home.attack}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -406,7 +450,9 @@ export default function HomeScreen() {
         visible={soldierModalVisible}
         onClose={() => setSoldierModalVisible(false)}
         playerStats={playerStats}
-        onHireSoldiers={handleHireSoldiers}
+        onOrderSoldiers={async (count) => await gameService.orderSoldiers(count)}
+        onCheckProduction={async () => await gameService.checkSoldierProduction()}
+        onGetProductionStatus={async () => await gameService.getSoldierProductionStatus()}
       />
 
       <AttackModal
@@ -434,6 +480,110 @@ export default function HomeScreen() {
           }
         }}
       />
+
+      {/* MT Coin Conversion Modal */}
+      <Modal visible={mtConversionModalVisible} transparent animationType="fade">
+        <View style={styles.mtModalOverlay}>
+          <View style={styles.mtModal}>
+            <View style={styles.mtModalHeader}>
+              <Text style={styles.mtModalTitle}>💎 Para → MT Coin</Text>
+              <TouchableOpacity onPress={() => setMtConversionModalVisible(false)}>
+                <Text style={styles.mtCloseBtn}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.mtModalContent}>
+              <Text style={styles.mtInfoText}>$100.000 = 1 MT Coin</Text>
+
+              <View style={styles.mtBalanceRow}>
+                <Text style={styles.mtBalanceLabel}>Mevcut Para:</Text>
+                <Text style={styles.mtBalanceValue}>${formatNumber(playerStats.cash)}</Text>
+              </View>
+              <View style={styles.mtBalanceRow}>
+                <Text style={styles.mtBalanceLabel}>Mevcut MT:</Text>
+                <Text style={styles.mtBalanceValueMT}>💎 {playerStats.mtCoins || 0}</Text>
+              </View>
+              <View style={styles.mtBalanceRow}>
+                <Text style={styles.mtBalanceLabel}>Maks. Dönüştürme:</Text>
+                <Text style={styles.mtBalanceValue}>{Math.floor(playerStats.cash / 100000)} MT</Text>
+              </View>
+
+              <Text style={styles.mtInputLabel}>Kaç MT istiyorsunuz?</Text>
+              <TextInput
+                style={styles.mtInput}
+                value={mtConversionAmount}
+                onChangeText={setMtConversionAmount}
+                keyboardType="number-pad"
+                placeholder="1"
+                placeholderTextColor="#666"
+              />
+
+              <View style={styles.mtPresetRow}>
+                {[1, 5, 10, 25].map(amount => (
+                  <TouchableOpacity
+                    key={amount}
+                    style={[
+                      styles.mtPresetBtn,
+                      parseInt(mtConversionAmount) === amount && styles.mtPresetBtnActive
+                    ]}
+                    onPress={() => setMtConversionAmount(amount.toString())}
+                    disabled={playerStats.cash < amount * 100000}
+                  >
+                    <Text style={[
+                      styles.mtPresetText,
+                      parseInt(mtConversionAmount) === amount && styles.mtPresetTextActive,
+                      playerStats.cash < amount * 100000 && styles.mtPresetTextDisabled
+                    ]}>
+                      {amount} MT
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.mtCostRow}>
+                <Text style={styles.mtCostLabel}>Ödenecek:</Text>
+                <Text style={[
+                  styles.mtCostValue,
+                  playerStats.cash < parseInt(mtConversionAmount || '0') * 100000 && { color: '#ff6b6b' }
+                ]}>
+                  ${(parseInt(mtConversionAmount || '0') * 100000).toLocaleString()}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.mtConvertBtn,
+                  (mtConversionLoading || playerStats.cash < parseInt(mtConversionAmount || '0') * 100000 || parseInt(mtConversionAmount || '0') < 1) && styles.mtConvertBtnDisabled
+                ]}
+                disabled={mtConversionLoading || playerStats.cash < parseInt(mtConversionAmount || '0') * 100000 || parseInt(mtConversionAmount || '0') < 1}
+                onPress={async () => {
+                  const amount = parseInt(mtConversionAmount || '0');
+                  if (amount < 1) {
+                    Alert.alert('Hata', 'En az 1 MT dönüştürmelisiniz!');
+                    return;
+                  }
+                  setMtConversionLoading(true);
+                  const result = await gameService.convertCashToMT(amount);
+                  setMtConversionLoading(false);
+                  if (result.success) {
+                    addNotification('success', result.message);
+                    setMtConversionModalVisible(false);
+                    setMtConversionAmount('1');
+                  } else {
+                    Alert.alert('Hata', result.message);
+                  }
+                }}
+              >
+                {mtConversionLoading ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <Text style={styles.mtConvertBtnText}>💎 Dönüştür</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -739,5 +889,149 @@ const styles = StyleSheet.create({
   activityTime: {
     color: '#999',
     fontSize: 11,
+  },
+  // MT Conversion Modal Styles
+  mtModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mtModal: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 20,
+    width: '90%',
+    borderWidth: 2,
+    borderColor: '#a855f7',
+  },
+  mtModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  mtModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#a855f7',
+  },
+  mtCloseBtn: {
+    color: '#999',
+    fontSize: 24,
+    padding: 5,
+  },
+  mtModalContent: {
+    padding: 20,
+  },
+  mtInfoText: {
+    color: '#a855f7',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 15,
+    backgroundColor: '#2a1a4a',
+    padding: 10,
+    borderRadius: 10,
+  },
+  mtBalanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  mtBalanceLabel: {
+    color: '#999',
+    fontSize: 14,
+  },
+  mtBalanceValue: {
+    color: '#66bb6a',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  mtBalanceValueMT: {
+    color: '#a855f7',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  mtInputLabel: {
+    color: '#fff',
+    fontSize: 14,
+    marginTop: 15,
+    marginBottom: 8,
+  },
+  mtInput: {
+    backgroundColor: '#2a2a2a',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    color: '#fff',
+    fontSize: 18,
+    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  mtPresetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    marginBottom: 15,
+  },
+  mtPresetBtn: {
+    backgroundColor: '#2a2a2a',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  mtPresetBtnActive: {
+    backgroundColor: '#a855f7',
+    borderColor: '#a855f7',
+  },
+  mtPresetText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  mtPresetTextActive: {
+    color: '#000',
+  },
+  mtPresetTextDisabled: {
+    color: '#666',
+  },
+  mtCostRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 15,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+  },
+  mtCostLabel: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  mtCostValue: {
+    color: '#66bb6a',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  mtConvertBtn: {
+    backgroundColor: '#a855f7',
+    paddingVertical: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  mtConvertBtnDisabled: {
+    backgroundColor: '#666',
+    opacity: 0.6,
+  },
+  mtConvertBtnText: {
+    color: '#000',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });

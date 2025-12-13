@@ -10,7 +10,7 @@ import {
   Modal,
 } from 'react-native';
 import { router } from 'expo-router';
-import { LogOut, User, Globe, Check, HelpCircle } from 'lucide-react-native';
+import { LogOut, User, Globe, Check, HelpCircle, Trash2 } from 'lucide-react-native';
 import { useGameService } from '@/hooks/useGameService';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -24,6 +24,7 @@ export default function SettingsScreen() {
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [howToPlayModalVisible, setHowToPlayModalVisible] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const performLogout = async () => {
     console.log('🚪 PERFORMING DIRECT LOGOUT');
@@ -41,7 +42,7 @@ export default function SettingsScreen() {
   const handleLogout = async () => {
     console.log('🚪 LOGOUT BUTTON PRESSED');
     console.log('🚪 SHOWING ALERT DIALOG');
-    
+
     // Platform kontrolü - Web için confirm, mobil için Alert
     if (Platform.OS === 'web') {
       const confirmed = confirm(t.settings.logoutConfirm);
@@ -54,9 +55,9 @@ export default function SettingsScreen() {
         t.settings.logoutConfirm,
         [
           { text: t.common.cancel, style: 'cancel' },
-          { 
-            text: t.settings.logout, 
-            style: 'destructive', 
+          {
+            text: t.settings.logout,
+            style: 'destructive',
             onPress: async () => {
               console.log('🚪 LOGOUT CONFIRMED');
               await performLogout();
@@ -73,14 +74,92 @@ export default function SettingsScreen() {
     setLanguageModalVisible(false);
   };
 
+  const handleDeleteAccount = async () => {
+    const confirmTitle = language === 'tr' ? 'Hesabı Sil' : 'Delete Account';
+    const confirmMessage = language === 'tr'
+      ? 'Hesabınızı silmek istediğinizden emin misiniz? Bu işlem geri alınamaz ve tüm verileriniz kalıcı olarak silinecektir.'
+      : 'Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently deleted.';
+    const confirmButton = language === 'tr' ? 'Evet, Hesabımı Sil' : 'Yes, Delete My Account';
 
-  const SettingItem = ({ 
-    icon, 
-    title, 
-    subtitle, 
-    onPress, 
-    rightComponent, 
-    showArrow = true 
+    if (Platform.OS === 'web') {
+      const confirmed = confirm(confirmMessage);
+      if (confirmed) {
+        await performDeleteAccount();
+      }
+    } else {
+      Alert.alert(
+        confirmTitle,
+        confirmMessage,
+        [
+          { text: t.common.cancel, style: 'cancel' },
+          {
+            text: confirmButton,
+            style: 'destructive',
+            onPress: performDeleteAccount
+          },
+        ]
+      );
+    }
+  };
+
+  const performDeleteAccount = async () => {
+    setDeleteLoading(true);
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        Alert.alert(t.common.error, language === 'tr' ? 'Kullanıcı bulunamadı!' : 'User not found!');
+        setDeleteLoading(false);
+        return;
+      }
+
+      // RPC ile tüm kullanıcı verilerini sil
+      const { data, error: rpcError } = await supabase.rpc('rpc_delete_my_account');
+
+      if (rpcError) {
+        console.error('RPC delete error:', rpcError);
+        // Fallback: Manuel silme
+        await supabase.from('soldier_production_queue').delete().eq('user_id', user.id);
+        await supabase.from('chat_blocks').delete().eq('blocker_id', user.id);
+        await supabase.from('chat_reports').delete().eq('reporter_id', user.id);
+        await supabase.from('chat_messages').delete().eq('user_id', user.id);
+        await supabase.from('user_soldiers').delete().eq('user_id', user.id);
+        await supabase.from('user_businesses').delete().eq('user_id', user.id);
+        await supabase.from('region_state').delete().eq('owner_user_id', user.id);
+        await supabase.from('family_members').delete().eq('user_id', user.id);
+        await supabase.from('player_stats').delete().eq('id', user.id);
+      }
+
+      // Oturumu kapat
+      await signOut();
+
+      Alert.alert(
+        language === 'tr' ? 'Hesap Silindi' : 'Account Deleted',
+        language === 'tr'
+          ? 'Hesabınız ve tüm verileriniz başarıyla silindi. Bu hesapla artık giriş yapamazsınız.'
+          : 'Your account and all data have been successfully deleted. You can no longer login with this account.',
+        [{ text: t.common.ok || 'OK', onPress: () => router.replace('/(auth)/login') }]
+      );
+    } catch (error) {
+      console.error('Delete account error:', error);
+      Alert.alert(
+        t.common.error,
+        language === 'tr' ? 'Hesap silinirken bir hata oluştu.' : 'An error occurred while deleting your account.'
+      );
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+
+  const SettingItem = ({
+    icon,
+    title,
+    subtitle,
+    onPress,
+    rightComponent,
+    showArrow = true
   }: {
     icon: React.ReactNode;
     title: string;
@@ -156,6 +235,12 @@ export default function SettingsScreen() {
           subtitle={t.settings.logoutSubtitle}
           onPress={handleLogout}
         />
+        <SettingItem
+          icon={<Trash2 size={20} color="#ff4444" />}
+          title={language === 'tr' ? 'Hesabı Sil' : 'Delete Account'}
+          subtitle={language === 'tr' ? 'Hesabınızı kalıcı olarak silin' : 'Permanently delete your account'}
+          onPress={handleDeleteAccount}
+        />
       </View>
 
       {/* Versiyon Bilgisi */}
@@ -163,7 +248,7 @@ export default function SettingsScreen() {
         <Text style={styles.versionText}>{t.settings.version}</Text>
         <Text style={styles.versionSubtext}>{t.settings.copyright}</Text>
       </View>
-      
+
       <ProfileModal
         visible={profileModalVisible}
         onClose={() => setProfileModalVisible(false)}
@@ -186,7 +271,7 @@ export default function SettingsScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>{t.languages.selectLanguage}</Text>
-            
+
             <TouchableOpacity
               style={[styles.languageOption, language === 'tr' && styles.languageOptionSelected]}
               onPress={() => handleLanguageSelect('tr')}

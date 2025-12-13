@@ -10,8 +10,14 @@ export const en = {
     delete: 'Delete',
     edit: 'Edit',
     close: 'Close',
+    yes: 'Yes',
+    no: 'No',
+    ok: 'OK',
+    warning: 'Warning',
+    insufficientFunds: 'Insufficient funds!',
+    insufficientSlots: 'Insufficient slots!',
   },
-  
+
   // Auth
   auth: {
     login: 'LOGIN',
@@ -27,7 +33,7 @@ export const en = {
     invalidEmail: 'Please enter a valid email address.',
     or: 'or',
   },
-  
+
   // Settings
   settings: {
     title: 'Settings',
@@ -44,15 +50,17 @@ export const en = {
     logoutError: 'An error occurred while logging out.',
     version: 'Mafia Empire v1.0.0',
     copyright: '© 2024 All rights reserved',
+    howToPlay: 'How to Play',
+    howToPlaySubtitle: 'Learn game mechanics',
   },
-  
+
   // Languages
   languages: {
     turkish: 'Türkçe',
     english: 'English',
     selectLanguage: 'Select Language',
   },
-  
+
   // Home
   home: {
     cash: 'Cash',
@@ -89,8 +97,9 @@ export const en = {
     hoursAgo: 'h ago',
     daysAgo: 'd ago',
     secondsRemaining: 'seconds remaining',
+    attack: 'Attack',
   },
-  
+
   // Businesses
   businesses: {
     title: 'Businesses',
@@ -119,7 +128,7 @@ export const en = {
     increase: 'increase',
     maxLevelReached: 'Maximum level reached',
   },
-  
+
   // Territory
   territory: {
     title: 'Territory Control',
@@ -142,8 +151,11 @@ export const en = {
     cannotAttackOwn: 'You cannot attack your own territory!',
     attackInProgressError: 'An attack is already in progress on this territory!',
     cannotReinforce: 'You can only place soldiers on your own territories!',
+    attackSuccessful: 'Attack Successful!',
+    attackFailed: 'Attack Failed!',
+    attackCompleted: 'Attack completed',
   },
-  
+
   // Shop
   shop: {
     title: 'Shop',
@@ -155,7 +167,7 @@ export const en = {
     purchaseFailed: 'Purchase failed.',
     mtPackages: 'MT Packages',
   },
-  
+
   // Notifications
   notifications: {
     notificationsSoon: 'Notifications coming soon!',
@@ -165,6 +177,96 @@ export const en = {
     noIncomeToCollect: 'No income to collect.',
     crimeSuccess: 'Success!',
     earned: 'earned!',
+    noNotifications: 'No notifications yet.',
+    attackNotification: 'You will see important events here when you are attacked.',
+  },
+
+  // Soldiers
+  soldiers: {
+    title: 'Soldier Production',
+    orderSoldiers: 'Order Soldiers',
+    inProduction: 'In Production',
+    soldierCount: 'Soldiers',
+    nextIn: 'Next in',
+    totalRemaining: 'Total Remaining',
+    currentStatus: 'Current Status',
+    cash: 'Cash',
+    producing: 'Producing',
+    emptySlots: 'Empty Slots',
+    howManySoldiers: 'How Many Soldiers?',
+    quickSelect: 'Quick Select',
+    totalCost: 'Total Cost',
+    productionTime: 'Production Time',
+    remainingCash: 'Remaining Cash',
+    orderButton: 'Order Soldiers',
+    cannotOrder: 'Cannot Order Soldiers',
+    slotsFullMessage: 'Soldier slots full or all slots in production. Level up to gain more slots.',
+    notEnoughCash: 'Not enough cash. Earn more money.',
+    productionInfo: '⏱️ Each soldier takes 100 seconds to produce. Production continues even when app is closed.',
+    insufficientCash: 'Insufficient cash!',
+    requiredAmount: 'Required: $',
+    maxSoldiers: 'Maximum soldiers you can order:',
+    confirmOrder: 'Confirm Order',
+    orderConfirmMessage: 'You will pay $ for soldiers.\n\n⏱️ Production Time:\n\nConfirm?',
+  },
+
+  // Chat
+  chat: {
+    title: 'General Chat',
+    sendMessage: 'Send Message',
+    typeMessage: 'Type your message...',
+    online: 'online',
+    report: 'Report',
+    block: 'Block',
+    unblock: 'Unblock',
+    blockedUsers: 'Blocked Users',
+    noBlockedUsers: 'No blocked users yet.',
+    reportUser: 'Report User',
+    reportReason: 'Report Reason',
+    reportDescription: 'Additional description (optional)',
+    reportSubmit: 'Submit Report',
+    reportSuccess: 'Report submitted successfully. Moderators will review.',
+    blockSuccess: 'User blocked. You will no longer see their messages.',
+    unblockSuccess: 'User unblocked.',
+    confirmBlock: 'Are you sure you want to block this user? You will no longer see their messages.',
+    confirmUnblock: 'Are you sure you want to unblock this user?',
+    longPressHint: '💡 Long press on a message to report or block',
+    profanity: '🤬 Profanity',
+    spam: '📢 Spam',
+    harassment: '😡 Harassment',
+    inappropriate: '🔞 Inappropriate',
+    other: '❓ Other',
+    bannedWordWarning: 'You cannot send this message! Profanity or inappropriate content detected.',
+  },
+
+  // Attack
+  attack: {
+    title: 'Attack',
+    confirmAttack: 'Confirm Attack',
+    attackButton: 'Attack!',
+    attacking: 'Attacking...',
+    attackSuccess: 'Attack Successful!',
+    attackFailed: 'Attack Failed!',
+    selectTarget: 'Select Target',
+    selectSoldiers: 'Select Soldiers',
+    attackingSoldiers: 'Attacking Soldiers:',
+    noTargets: 'No targets available',
+  },
+
+  // Family
+  family: {
+    title: 'Family',
+    createFamily: 'Create Family',
+    joinFamily: 'Join Family',
+    leaveFamily: 'Leave Family',
+    familyName: 'Family Name',
+    members: 'Members',
+    treasury: 'Treasury',
+    soldierTreasury: 'Soldier Treasury',
+    donate: 'Donate',
+    donateAmount: 'Donation Amount',
+    currentSoldiers: 'Current Soldiers',
+    currentCash: 'Current Cash',
+    insufficientSoldiers: 'Insufficient soldiers!',
   },
 };
-

@@ -573,47 +573,108 @@ class GameService {
     };
   }
 
-  // Soldato işe alma
-  async hireSoldiers(count: number): Promise<{ success: boolean; message: string }> {
-    console.log('🔥 HIRE SOLDIERS CALLED:', { count, currentCash: this.playerStats.cash, currentSoldiers: this.playerStats.soldiers });
+  // Soldato siparişi ver (100 saniye/soldato üretim süresi)
+  async orderSoldiers(count: number): Promise<{ success: boolean; message: string }> {
+    console.log('🔥 ORDER SOLDIERS CALLED:', { count, currentCash: this.playerStats.cash, currentSoldiers: this.playerStats.soldiers });
 
-    const baseCost = 100;
-    const levelMultiplier = 1 + (this.playerStats.level * 0.1);
-    const totalCost = Math.floor(baseCost * count * levelMultiplier);
-
-    const maxSoldiers = this.playerStats.level * 5;
-    const availableSlots = maxSoldiers - this.playerStats.soldiers;
-
-    console.log('🔥 HIRE CALCULATION:', { totalCost, maxSoldiers, availableSlots });
-
-    if (this.playerStats.cash < totalCost) {
-      return { success: false, message: `Yetersiz para! ${count} soldato için $${totalCost.toLocaleString()} gerekli.` };
+    if (!this.currentUserId) {
+      return { success: false, message: 'Kullanıcı bulunamadı!' };
     }
 
-    if (count > availableSlots) {
-      return { success: false, message: `Yetersiz slot! Maksimum ${availableSlots} soldato alabilirsiniz.` };
+    // Supabase RPC ile sipariş ver
+    const { data, error } = await supabase.rpc('rpc_order_soldiers', {
+      p_count: count
+    });
+
+    if (error) {
+      console.error('❌ Order soldiers error:', error);
+      return { success: false, message: `Sipariş hatası: ${error.message}` };
     }
 
-    // Para düş ve soldato ekle
-    this.playerStats.cash -= totalCost;
-    this.playerStats.soldiers += count;
+    const result = data?.[0] || { success: false, message: 'Bilinmeyen hata' };
 
-    // Soldato gücünü hesapla ve ekle (her soldato 2 güç puanı)
-    const soldierPower = count * 2;
-    this.playerStats.strength += soldierPower;
+    if (result.success) {
+      // Local state güncelle
+      await this.loadPlayerStatsFromSupabase();
+    }
 
-    console.log('🔥 AFTER HIRE:', { newCash: this.playerStats.cash, newSoldiers: this.playerStats.soldiers });
+    console.log('🔥 ORDER SOLDIERS RESULT:', result);
+    return {
+      success: result.success,
+      message: result.message
+    };
+  }
 
-    // Hem player_stats hem de user_soldiers tablosunu güncelle
-    await Promise.all([
-      this.savePlayerStatsToSupabase(),
-      this.saveSoldiersToSupabase()
-    ]);
+  // Soldato üretim durumunu kontrol et ve tamamlananları al
+  async checkSoldierProduction(): Promise<{
+    soldiersAdded: number;
+    soldiersPending: number;
+    secondsRemaining: number;
+    message: string;
+  }> {
+    if (!this.currentUserId) {
+      return { soldiersAdded: 0, soldiersPending: 0, secondsRemaining: 0, message: 'Kullanıcı bulunamadı!' };
+    }
+
+    const { data, error } = await supabase.rpc('rpc_check_soldier_production');
+
+    if (error) {
+      console.error('❌ Check soldier production error:', error);
+      return { soldiersAdded: 0, soldiersPending: 0, secondsRemaining: 0, message: error.message };
+    }
+
+    const result = data?.[0] || { soldiers_added: 0, soldiers_pending: 0, seconds_remaining: 0, message: '' };
+
+    // Eğer asker eklendiyse local state güncelle
+    if (result.soldiers_added > 0) {
+      this.playerStats.soldiers += result.soldiers_added;
+      console.log('✅ Soldiers added from production:', result.soldiers_added);
+    }
 
     return {
-      success: true,
-      message: `${count} soldato başarıyla işe alındı! $${totalCost.toLocaleString()} ödendi. +${soldierPower} güç kazandınız!`
+      soldiersAdded: result.soldiers_added,
+      soldiersPending: result.soldiers_pending,
+      secondsRemaining: result.seconds_remaining,
+      message: result.message
     };
+  }
+
+  // Mevcut üretim durumunu getir (UI için)
+  async getSoldierProductionStatus(): Promise<{
+    soldiersInProduction: number;
+    soldiersCompleted: number;
+    secondsUntilNext: number;
+    productionStartTime: Date | null;
+  }> {
+    if (!this.currentUserId) {
+      return { soldiersInProduction: 0, soldiersCompleted: 0, secondsUntilNext: 0, productionStartTime: null };
+    }
+
+    const { data, error } = await supabase.rpc('rpc_get_soldier_production_status');
+
+    if (error) {
+      console.error('❌ Get soldier production status error:', error);
+      return { soldiersInProduction: 0, soldiersCompleted: 0, secondsUntilNext: 0, productionStartTime: null };
+    }
+
+    const result = data?.[0] || {
+      soldiers_in_production: 0,
+      soldiers_completed: 0,
+      seconds_until_next: 0,
+      production_start_time: null
+    };
+
+    return {
+      soldiersInProduction: result.soldiers_in_production,
+      soldiersCompleted: result.soldiers_completed,
+      secondsUntilNext: result.seconds_until_next,
+      productionStartTime: result.production_start_time ? new Date(result.production_start_time) : null
+    };
+  }
+
+  // Legacy uyumluluk için hireSoldiers'ı orderSoldiers'a yönlendir
+  async hireSoldiers(count: number): Promise<{ success: boolean; message: string }> {
+    return this.orderSoldiers(count);
   }
 
   // Supabase: user_soldiers tablosuna asker sayısını kaydet
@@ -680,6 +741,43 @@ class GameService {
     await this.saveMTCoinsToSupabase();
 
     return { success: true, message: `${amount} MT Coin harcandı (${reason})` };
+  }
+
+  // Para -> MT Coin dönüşümü ($100,000 = 1 MT)
+  async convertCashToMT(mtAmount: number): Promise<{ success: boolean; message: string; mtGained?: number }> {
+    const CASH_PER_MT = 100000; // $100,000 = 1 MT
+    const cashRequired = mtAmount * CASH_PER_MT;
+
+    console.log('💎 CONVERTING CASH TO MT:', { mtAmount, cashRequired, currentCash: this.playerStats.cash });
+
+    if (mtAmount < 1) {
+      return { success: false, message: 'En az 1 MT dönüştürmelisiniz!' };
+    }
+
+    if (this.playerStats.cash < cashRequired) {
+      return {
+        success: false,
+        message: `Yetersiz para! ${mtAmount} MT için $${cashRequired.toLocaleString()} gerekli.`
+      };
+    }
+
+    // Parayı düş, MT ekle
+    this.playerStats.cash -= cashRequired;
+    this.playerStats.mtCoins += mtAmount;
+
+    // Supabase'e kaydet
+    await Promise.all([
+      this.savePlayerStatsToSupabase(),
+      this.saveMTCoinsToSupabase()
+    ]);
+
+    console.log('✅ Cash converted to MT:', { mtGained: mtAmount, newMT: this.playerStats.mtCoins, newCash: this.playerStats.cash });
+
+    return {
+      success: true,
+      message: `$${cashRequired.toLocaleString()} karşılığında ${mtAmount} MT Coin kazandınız!`,
+      mtGained: mtAmount
+    };
   }
 
   // MT Coins'i Supabase'e kaydet
@@ -828,10 +926,10 @@ class GameService {
     const success = Math.random() * 100 <= crime.successRate;
 
     if (success) {
-      // Ödül hesapla
+      // Ödül hesapla - para için level çarpanı, XP sabit
       const levelMultiplier = 1 + (this.playerStats.level - crime.requiredLevel) * 0.1;
       const reward = Math.floor(crime.baseReward * Math.max(1, levelMultiplier));
-      const xp = Math.floor(crime.baseXP * Math.max(1, levelMultiplier));
+      const xp = crime.baseXP; // XP seviyeye göre değişmez, herkes aynı miktarı alır
 
       // Ödülleri ver
       this.playerStats.cash += reward;
@@ -993,9 +1091,75 @@ class GameService {
     }
   }
 
-  // Gelir toplama
+  // Biriken pasif geliri hesapla (Supabase'den - uygulama kapalıyken de birikir)
+  async getAccumulatedIncome(): Promise<{
+    accumulatedAmount: number;
+    secondsElapsed: number;
+    hourlyRate: number;
+    businessIncome: number;
+    territoryIncome: number;
+  }> {
+    if (!this.currentUserId) {
+      return { accumulatedAmount: 0, secondsElapsed: 0, hourlyRate: 0, businessIncome: 0, territoryIncome: 0 };
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('rpc_calculate_accumulated_income');
+
+      if (error) {
+        console.error('❌ Error getting accumulated income:', error);
+        return { accumulatedAmount: 0, secondsElapsed: 0, hourlyRate: 0, businessIncome: 0, territoryIncome: 0 };
+      }
+
+      const result = data?.[0];
+      return {
+        accumulatedAmount: result?.accumulated_amount || 0,
+        secondsElapsed: result?.seconds_elapsed || 0,
+        hourlyRate: result?.hourly_rate || 0,
+        businessIncome: result?.business_income || 0,
+        territoryIncome: result?.territory_income || 0
+      };
+    } catch (error) {
+      console.error('❌ Error getting accumulated income:', error);
+      return { accumulatedAmount: 0, secondsElapsed: 0, hourlyRate: 0, businessIncome: 0, territoryIncome: 0 };
+    }
+  }
+
+  // Gelir toplama (Supabase RPC ile - persist)
+  async collectAccumulatedIncomeFromServer(): Promise<{ success: boolean; message: string; amount: number }> {
+    if (!this.currentUserId) {
+      return { success: false, message: 'Kullanıcı bulunamadı!', amount: 0 };
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('rpc_collect_accumulated_income');
+
+      if (error) {
+        console.error('❌ Error collecting income:', error);
+        return { success: false, message: error.message, amount: 0 };
+      }
+
+      const result = data?.[0];
+
+      if (result?.success) {
+        // Local state güncelle
+        await this.loadPlayerStatsFromSupabase();
+      }
+
+      return {
+        success: result?.success || false,
+        message: result?.message || 'Bir hata oluştu',
+        amount: result?.amount_collected || 0
+      };
+    } catch (error) {
+      console.error('❌ Error collecting income:', error);
+      return { success: false, message: 'Gelir toplanamadı!', amount: 0 };
+    }
+  }
+
+  // Eski collectAccumulatedIncome - geriye uyumluluk için (artık server-side kullanılıyor)
   collectAccumulatedIncome(amount: number): { success: boolean; message: string } {
-    console.log('🔥 COLLECT INCOME:', amount);
+    console.log('🔥 COLLECT INCOME (legacy):', amount);
 
     this.playerStats.cash += amount;
     this.playerStats.totalEarnings += amount;

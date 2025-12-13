@@ -9,9 +9,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Linking,
 } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { Crown, Mail, Lock, User, Eye, EyeOff } from 'lucide-react-native';
 
 export default function RegisterScreen() {
@@ -24,6 +26,9 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
   const isMounted = useRef(true);
   const { signUp } = useAuth();
+  const { language } = useLanguage();
+
+  const PRIVACY_POLICY_URL = 'https://www.freeprivacypolicy.com/live/130e04d6-c887-478f-be92-a079f140f492';
 
   useEffect(() => {
     return () => {
@@ -64,13 +69,13 @@ export default function RegisterScreen() {
     if (isMounted.current) {
       setLoading(true);
     }
-    
+
     try {
       const { error } = await signUp(email, password, username);
       console.log('🔥 SIGNUP RESULT:', { error });
-    
+
       if (!isMounted.current) return;
-    
+
       setLoading(false);
 
       if (error) {
@@ -94,8 +99,8 @@ export default function RegisterScreen() {
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container} 
+    <KeyboardAvoidingView
+      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -208,8 +213,15 @@ export default function RegisterScreen() {
           {/* Footer */}
           <View style={styles.footer}>
             <Text style={styles.footerText}>
-              Hesap oluşturarak Kullanım Şartları ve Gizlilik Politikası'nı kabul etmiş olursunuz
+              {language === 'tr'
+                ? 'Hesap oluşturarak Kullanım Şartları ve Gizlilik Politikası\'nı kabul etmiş olursunuz'
+                : 'By creating an account, you agree to the Terms of Use and Privacy Policy'}
             </Text>
+            <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+              <Text style={styles.privacyLink}>
+                {language === 'tr' ? 'Gizlilik Politikası' : 'Privacy Policy'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -321,5 +333,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  privacyLink: {
+    color: '#4ecdc4',
+    fontSize: 12,
+    marginTop: 10,
+    textDecorationLine: 'underline',
   },
 });

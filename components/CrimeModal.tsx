@@ -96,7 +96,7 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
         // Show success alert with details
         Alert.alert(
           '✓ İş Başlatıldı!',
-          `${crime.name} işleniyor...\n\n⏱️ Süre: ${formatTime(crime.duration)}\n💵 Tahmini Kazanç: $${Math.floor(crime.baseReward * (1 + (playerLevel - crime.requiredLevel) * 0.1)).toLocaleString()}\n⭐ Tahmini XP: ${Math.floor(crime.baseXP * (1 + (playerLevel - crime.requiredLevel) * 0.1))}\n🎯 Başarı Oranı: %${crime.successRate}`,
+          `${crime.name} işleniyor...\n\n⏱️ Süre: ${formatTime(crime.duration)}\n💵 Tahmini Kazanç: $${Math.floor(crime.baseReward * (1 + (playerLevel - crime.requiredLevel) * 0.1)).toLocaleString()}\n⭐ Tahmini XP: ${crime.baseXP}\n🎯 Başarı Oranı: %${crime.successRate}`,
           [{ text: 'Tamam', style: 'default' }]
         );
       }

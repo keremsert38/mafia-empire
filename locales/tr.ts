@@ -10,8 +10,14 @@ export const tr = {
     delete: 'Sil',
     edit: 'Düzenle',
     close: 'Kapat',
+    yes: 'Evet',
+    no: 'Hayır',
+    ok: 'Tamam',
+    warning: 'Uyarı',
+    insufficientFunds: 'Yetersiz para!',
+    insufficientSlots: 'Yetersiz slot!',
   },
-  
+
   // Auth
   auth: {
     login: 'GİRİŞ YAP',
@@ -27,7 +33,7 @@ export const tr = {
     invalidEmail: 'Lütfen geçerli bir email adresi girin.',
     or: 'veya',
   },
-  
+
   // Settings
   settings: {
     title: 'Ayarlar',
@@ -44,15 +50,17 @@ export const tr = {
     logoutError: 'Çıkış yapılırken bir hata oluştu.',
     version: 'Mafia Empire v1.0.0',
     copyright: '© 2024 Tüm hakları saklıdır',
+    howToPlay: 'Nasıl Oynanır',
+    howToPlaySubtitle: 'Oyun mekanikleri hakkında bilgi edinin',
   },
-  
+
   // Languages
   languages: {
     turkish: 'Türkçe',
     english: 'English',
     selectLanguage: 'Dil Seçin',
   },
-  
+
   // Home
   home: {
     cash: 'Para',
@@ -89,8 +97,9 @@ export const tr = {
     hoursAgo: 'h önce',
     daysAgo: 'g önce',
     secondsRemaining: 'saniye kaldı',
+    attack: 'Saldırı',
   },
-  
+
   // Businesses
   businesses: {
     title: 'İşletmeler',
@@ -119,7 +128,7 @@ export const tr = {
     increase: 'artış',
     maxLevelReached: 'Maksimum seviye',
   },
-  
+
   // Territory
   territory: {
     title: 'Bölge Kontrolü',
@@ -142,8 +151,11 @@ export const tr = {
     cannotAttackOwn: 'Kendi bölgenize saldıramazsınız!',
     attackInProgressError: 'Bu bölgeye zaten saldırı düzenleniyor!',
     cannotReinforce: 'Sadece kendi bölgelerinize asker yerleştirebilirsiniz!',
+    attackSuccessful: 'Saldırı Başarılı!',
+    attackFailed: 'Saldırı Başarısız!',
+    attackCompleted: 'Saldırı tamamlandı',
   },
-  
+
   // Shop
   shop: {
     title: 'Mağaza',
@@ -155,7 +167,7 @@ export const tr = {
     purchaseFailed: 'Satın alma başarısız oldu.',
     mtPackages: 'MT Paketleri',
   },
-  
+
   // Notifications
   notifications: {
     notificationsSoon: 'Bildirimler yakında!',
@@ -165,6 +177,96 @@ export const tr = {
     noIncomeToCollect: 'Toplanacak gelir yok.',
     crimeSuccess: 'Başarılı!',
     earned: 'kazandınız!',
+    noNotifications: 'Henüz bildirim yok.',
+    attackNotification: 'Saldırıya uğradığınızda veya önemli olaylar olduğunda burada göreceksiniz.',
+  },
+
+  // Soldiers
+  soldiers: {
+    title: 'Soldato Üretimi',
+    orderSoldiers: 'Soldato Sipariş Ver',
+    inProduction: 'Üretimde',
+    soldierCount: 'Soldato',
+    nextIn: 'Sonraki için',
+    totalRemaining: 'Toplam Kalan',
+    currentStatus: 'Mevcut Durum',
+    cash: 'Para',
+    producing: 'Üretimde',
+    emptySlots: 'Boş Slot',
+    howManySoldiers: 'Kaç Soldato Sipariş?',
+    quickSelect: 'Hızlı Seçim',
+    totalCost: 'Toplam Maliyet',
+    productionTime: 'Üretim Süresi',
+    remainingCash: 'Kalan Para',
+    orderButton: 'Soldato Sipariş Ver',
+    cannotOrder: 'Soldato Sipariş Edilemiyor',
+    slotsFullMessage: 'Soldato slotunuz dolu veya tüm slotlar üretimde. Seviye atlayarak daha fazla slot kazanın.',
+    notEnoughCash: 'Yeterli paranız yok. Daha fazla para kazanın.',
+    productionInfo: '⏱️ Her soldato 100 saniye üretilir. Uygulama kapalıyken de üretim devam eder.',
+    insufficientCash: 'Yetersiz para!',
+    requiredAmount: 'Gerekli: $',
+    maxSoldiers: 'Sipariş edebileceğiniz maksimum soldato:',
+    confirmOrder: 'Siparişi Onayla',
+    orderConfirmMessage: 'soldato için $ ödeyeceksiniz.\n\n⏱️ Üretim Süresi:\n\nOnaylıyor musunuz?',
+  },
+
+  // Chat
+  chat: {
+    title: 'Genel Sohbet',
+    sendMessage: 'Mesaj Gönder',
+    typeMessage: 'Mesajınızı yazın...',
+    online: 'çevrimiçi',
+    report: 'Raporla',
+    block: 'Engelle',
+    unblock: 'Engeli Kaldır',
+    blockedUsers: 'Engellenen Kullanıcılar',
+    noBlockedUsers: 'Henüz engellediğiniz kullanıcı yok.',
+    reportUser: 'Kullanıcı Raporla',
+    reportReason: 'Rapor Sebebi',
+    reportDescription: 'Ek açıklama (opsiyonel)',
+    reportSubmit: 'Rapor Gönder',
+    reportSuccess: 'Rapor başarıyla gönderildi. Yöneticiler inceleyecek.',
+    blockSuccess: 'Kullanıcı engellendi. Artık mesajlarını görmeyeceksiniz.',
+    unblockSuccess: 'Kullanıcının engeli kaldırıldı.',
+    confirmBlock: 'Bu kullanıcıyı engellemek istediğinize emin misiniz? Artık mesajlarını görmeyeceksiniz.',
+    confirmUnblock: 'Bu kullanıcının engelini kaldırmak istediğinize emin misiniz?',
+    longPressHint: '💡 Raporlamak için mesaja uzun basın',
+    profanity: '🤬 Küfür / Hakaret',
+    spam: '📢 Spam / Reklam',
+    harassment: '😡 Taciz / Zorbalık',
+    inappropriate: '🔞 Uygunsuz İçerik',
+    other: '❓ Diğer',
+    bannedWordWarning: 'Bu mesajı gönderemezsiniz! Küfür, argo veya uygunsuz içerik tespit edildi.',
+  },
+
+  // Attack
+  attack: {
+    title: 'Saldırı',
+    confirmAttack: 'Saldırı Onayla',
+    attackButton: 'Saldır!',
+    attacking: 'Saldırılıyor...',
+    attackSuccess: 'Saldırı Başarılı!',
+    attackFailed: 'Saldırı Başarısız!',
+    selectTarget: 'Hedef Seç',
+    selectSoldiers: 'Asker Seç',
+    attackingSoldiers: 'Saldıran Asker Sayısı:',
+    noTargets: 'Hedef bulunamadı',
+  },
+
+  // Family
+  family: {
+    title: 'Aile',
+    createFamily: 'Aile Kur',
+    joinFamily: 'Aileye Katıl',
+    leaveFamily: 'Aileden Ayrıl',
+    familyName: 'Aile Adı',
+    members: 'Üyeler',
+    treasury: 'Hazine',
+    soldierTreasury: 'Soldato Hazinesi',
+    donate: 'Bağışla',
+    donateAmount: 'Bağış Miktarı',
+    currentSoldiers: 'Mevcut Soldato',
+    currentCash: 'Mevcut Para',
+    insufficientSoldiers: 'Yetersiz soldato!',
   },
 };
-

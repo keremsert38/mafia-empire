@@ -571,7 +571,7 @@ To progress in the game:
                     onPress={() => setActiveSection(section.id)}
                   >
                     <Icon
-                      size={18}
+                      size={20}
                       color={activeSection === section.id ? '#d4af37' : '#999'}
                     />
                     <Text
@@ -579,9 +579,8 @@ To progress in the game:
                         styles.sidebarItemText,
                         activeSection === section.id && styles.sidebarItemTextActive
                       ]}
-                      numberOfLines={2}
                     >
-                      {section.title}
+                      {section.title.replace(/^[^\s]+\s/, '')}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -647,20 +646,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   sidebar: {
-    width: 140,
+    width: 120,
     backgroundColor: '#0a0a0a',
     borderRightWidth: 1,
     borderRightColor: '#333',
-    padding: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
   },
   sidebarItem: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
-    gap: 8,
-    padding: 12,
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
     borderRadius: 10,
-    marginBottom: 8,
+    marginBottom: 6,
     backgroundColor: '#1a1a1a',
+    minHeight: 60,
   },
   sidebarItemActive: {
     backgroundColor: '#2a2a2a',
@@ -668,9 +670,11 @@ const styles = StyleSheet.create({
     borderColor: '#d4af37',
   },
   sidebarItemText: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#999',
-    flex: 1,
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 13,
   },
   sidebarItemTextActive: {
     color: '#d4af37',

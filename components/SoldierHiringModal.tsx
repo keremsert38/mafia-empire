@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,38 +6,110 @@ import {
   Modal,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
-// Basit text icon'lar kullanıyoruz
 import { PlayerStats } from '@/types/game';
 
 interface SoldierHiringModalProps {
   visible: boolean;
   onClose: () => void;
   playerStats: PlayerStats;
-  onHireSoldiers: (count: number) => Promise<{ success: boolean; message: string }>;
+  onOrderSoldiers: (count: number) => Promise<{ success: boolean; message: string }>;
+  onCheckProduction: () => Promise<{
+    soldiersAdded: number;
+    soldiersPending: number;
+    secondsRemaining: number;
+    message: string;
+  }>;
+  onGetProductionStatus: () => Promise<{
+    soldiersInProduction: number;
+    soldiersCompleted: number;
+    secondsUntilNext: number;
+    productionStartTime: Date | null;
+  }>;
 }
 
-export default function SoldierHiringModal({ 
-  visible, 
-  onClose, 
-  playerStats, 
-  onHireSoldiers 
+export default function SoldierHiringModal({
+  visible,
+  onClose,
+  playerStats,
+  onOrderSoldiers,
+  onCheckProduction,
+  onGetProductionStatus
 }: SoldierHiringModalProps) {
   const [selectedCount, setSelectedCount] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [productionStatus, setProductionStatus] = useState({
+    soldiersInProduction: 0,
+    secondsUntilNext: 0,
+  });
+  const [timeDisplay, setTimeDisplay] = useState('');
 
-  // Daha makul fiyatlar
+  // Fiyat hesapla
   const getSoldierCost = (count: number) => {
-    const baseCost = 100; // Her soldato için temel maliyet
-    const levelMultiplier = 1 + (playerStats.level * 0.1); // Seviye arttıkça biraz daha pahalı
+    const baseCost = 100;
+    const levelMultiplier = 1 + (playerStats.level * 0.1);
     return Math.floor(baseCost * count * levelMultiplier);
   };
 
-  const maxSoldiers = playerStats.level * 5; // Seviye başına 5 soldato
-  const availableSlots = maxSoldiers - playerStats.soldiers;
+  const maxSoldiers = playerStats.level * 5;
+  const availableSlots = maxSoldiers - playerStats.soldiers - productionStatus.soldiersInProduction;
   const maxAffordable = Math.floor(playerStats.cash / getSoldierCost(1));
-  const maxCanHire = Math.min(availableSlots, maxAffordable, 50); // Maksimum 50 soldato
+  const maxCanOrder = Math.min(availableSlots, maxAffordable, 50);
 
-  const handleHire = () => {
+  // Üretim durumunu yükle
+  const loadProductionStatus = useCallback(async () => {
+    try {
+      // Önce tamamlananları kontrol et
+      await onCheckProduction();
+
+      // Sonra mevcut durumu al
+      const status = await onGetProductionStatus();
+      setProductionStatus({
+        soldiersInProduction: status.soldiersInProduction,
+        secondsUntilNext: status.secondsUntilNext,
+      });
+    } catch (error) {
+      console.error('Error loading production status:', error);
+    }
+  }, [onCheckProduction, onGetProductionStatus]);
+
+  // Sayaç güncellemesi
+  useEffect(() => {
+    if (!visible) return;
+
+    loadProductionStatus();
+
+    const interval = setInterval(() => {
+      setProductionStatus(prev => {
+        if (prev.secondsUntilNext <= 1 && prev.soldiersInProduction > 0) {
+          // Bir soldato tamamlandı, durumu yeniden yükle
+          loadProductionStatus();
+          return prev;
+        }
+        return {
+          ...prev,
+          secondsUntilNext: Math.max(0, prev.secondsUntilNext - 1),
+        };
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [visible, loadProductionStatus]);
+
+  // Zaman gösterimi formatla
+  useEffect(() => {
+    if (productionStatus.soldiersInProduction > 0) {
+      const totalSeconds = productionStatus.secondsUntilNext + (productionStatus.soldiersInProduction - 1) * 100;
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      setTimeDisplay(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+    } else {
+      setTimeDisplay('');
+    }
+  }, [productionStatus]);
+
+  const handleOrder = async () => {
     if (selectedCount <= 0) {
       Alert.alert('Hata', 'Geçerli bir sayı seçin!');
       return;
@@ -50,26 +122,38 @@ export default function SoldierHiringModal({
     }
 
     if (selectedCount > availableSlots) {
-      Alert.alert('Yetersiz Slot', `Maksimum ${availableSlots} soldato alabilirsiniz!`);
+      Alert.alert('Yetersiz Slot', `Maksimum ${availableSlots} soldato sipariş edebilirsiniz!`);
       return;
     }
 
+    const productionTime = selectedCount * 100;
+    const productionMinutes = Math.floor(productionTime / 60);
+    const productionSeconds = productionTime % 60;
+
     Alert.alert(
-      'Soldato İşe Al',
-      `${selectedCount} soldato için $${cost.toLocaleString()} ödeyeceksiniz. Onaylıyor musunuz?`,
+      'Soldato Siparişi',
+      `${selectedCount} soldato için $${cost.toLocaleString()} ödeyeceksiniz.\n\n⏱️ Üretim Süresi: ${productionMinutes}:${productionSeconds.toString().padStart(2, '0')}\n\nOnaylıyor musunuz?`,
       [
         { text: 'İptal', style: 'cancel' },
         {
-          text: 'Onayla',
+          text: 'Sipariş Ver',
           onPress: async () => {
-            const result = await onHireSoldiers(selectedCount);
-            if (result.success) {
-              onClose();
+            setLoading(true);
+            try {
+              const result = await onOrderSoldiers(selectedCount);
+              Alert.alert(
+                result.success ? '✅ Başarılı' : '❌ Hata',
+                result.message
+              );
+              if (result.success) {
+                await loadProductionStatus();
+                setSelectedCount(1);
+              }
+            } catch (error) {
+              Alert.alert('Hata', 'Sipariş verilemedi!');
+            } finally {
+              setLoading(false);
             }
-            Alert.alert(
-              result.success ? 'Başarılı' : 'Hata',
-              result.message
-            );
           }
         }
       ]
@@ -78,12 +162,12 @@ export default function SoldierHiringModal({
 
   const adjustCount = (change: number) => {
     const newCount = selectedCount + change;
-    if (newCount >= 1 && newCount <= maxCanHire) {
+    if (newCount >= 1 && newCount <= maxCanOrder) {
       setSelectedCount(newCount);
     }
   };
 
-  const presetCounts = [1, 5, 10, 25].filter(count => count <= maxCanHire);
+  const presetCounts = [1, 5, 10, 25].filter(count => count <= maxCanOrder);
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -92,7 +176,7 @@ export default function SoldierHiringModal({
           <View style={styles.header}>
             <View style={styles.headerContent}>
               <Text style={styles.playerName}>{playerStats.name}</Text>
-              <Text style={styles.title}>Soldato İşe Al</Text>
+              <Text style={styles.title}>Soldato Üretimi</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeButtonText}>✕</Text>
@@ -100,6 +184,40 @@ export default function SoldierHiringModal({
           </View>
 
           <View style={styles.content}>
+            {/* Üretim Durumu */}
+            {productionStatus.soldiersInProduction > 0 && (
+              <View style={styles.productionCard}>
+                <View style={styles.productionHeader}>
+                  <Text style={styles.productionTitle}>🏭 Üretimde</Text>
+                  <ActivityIndicator size="small" color="#d4af37" />
+                </View>
+                <View style={styles.productionInfo}>
+                  <View style={styles.productionRow}>
+                    <Text style={styles.productionLabel}>Soldato:</Text>
+                    <Text style={styles.productionValue}>{productionStatus.soldiersInProduction}</Text>
+                  </View>
+                  <View style={styles.productionRow}>
+                    <Text style={styles.productionLabel}>Sonraki için:</Text>
+                    <Text style={styles.productionTimer}>
+                      {Math.floor(productionStatus.secondsUntilNext / 60)}:{(productionStatus.secondsUntilNext % 60).toString().padStart(2, '0')}
+                    </Text>
+                  </View>
+                  <View style={styles.productionRow}>
+                    <Text style={styles.productionLabel}>Toplam Kalan:</Text>
+                    <Text style={styles.productionValue}>{timeDisplay}</Text>
+                  </View>
+                </View>
+                <View style={styles.productionProgress}>
+                  <View
+                    style={[
+                      styles.productionProgressBar,
+                      { width: `${((100 - productionStatus.secondsUntilNext) / 100) * 100}%` }
+                    ]}
+                  />
+                </View>
+              </View>
+            )}
+
             {/* Mevcut Durum */}
             <View style={styles.statusCard}>
               <Text style={styles.statusTitle}>Mevcut Durum</Text>
@@ -112,31 +230,37 @@ export default function SoldierHiringModal({
                 <Text style={styles.statusValue}>{playerStats.soldiers}/{maxSoldiers}</Text>
               </View>
               <View style={styles.statusRow}>
+                <Text style={styles.statusLabel}>Üretimde:</Text>
+                <Text style={[styles.statusValue, { color: '#ffa726' }]}>
+                  {productionStatus.soldiersInProduction}
+                </Text>
+              </View>
+              <View style={styles.statusRow}>
                 <Text style={styles.statusLabel}>Boş Slot:</Text>
                 <Text style={styles.statusValue}>{availableSlots}</Text>
               </View>
             </View>
 
-            {maxCanHire > 0 ? (
+            {maxCanOrder > 0 ? (
               <>
                 {/* Sayı Seçici */}
                 <View style={styles.counterSection}>
-                  <Text style={styles.sectionTitle}>Kaç Soldato?</Text>
+                  <Text style={styles.sectionTitle}>Kaç Soldato Sipariş?</Text>
                   <View style={styles.counter}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.counterButton}
                       onPress={() => adjustCount(-1)}
                       disabled={selectedCount <= 1}
                     >
                       <Text style={styles.iconText}>−</Text>
                     </TouchableOpacity>
-                    
+
                     <Text style={styles.counterValue}>{selectedCount}</Text>
-                    
-                    <TouchableOpacity 
+
+                    <TouchableOpacity
                       style={styles.counterButton}
                       onPress={() => adjustCount(1)}
-                      disabled={selectedCount >= maxCanHire}
+                      disabled={selectedCount >= maxCanOrder}
                     >
                       <Text style={styles.iconText}>+</Text>
                     </TouchableOpacity>
@@ -167,12 +291,18 @@ export default function SoldierHiringModal({
                   </View>
                 </View>
 
-                {/* Maliyet */}
+                {/* Maliyet ve Süre */}
                 <View style={styles.costCard}>
                   <View style={styles.costRow}>
                     <Text style={styles.costLabel}>Toplam Maliyet:</Text>
                     <Text style={styles.costValue}>
                       ${getSoldierCost(selectedCount).toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>Üretim Süresi:</Text>
+                    <Text style={[styles.costValue, { color: '#66bb6a' }]}>
+                      {Math.floor(selectedCount * 100 / 60)}:{((selectedCount * 100) % 60).toString().padStart(2, '0')}
                     </Text>
                   </View>
                   <View style={styles.costRow}>
@@ -186,27 +316,37 @@ export default function SoldierHiringModal({
                   </View>
                 </View>
 
-                {/* İşe Al Butonu */}
+                {/* Sipariş Butonu */}
                 <TouchableOpacity
                   style={[
                     styles.hireButton,
-                    (playerStats.cash < getSoldierCost(selectedCount)) && styles.hireButtonDisabled
+                    (playerStats.cash < getSoldierCost(selectedCount) || loading) && styles.hireButtonDisabled
                   ]}
-                  onPress={handleHire}
-                  disabled={playerStats.cash < getSoldierCost(selectedCount)}
+                  onPress={handleOrder}
+                  disabled={playerStats.cash < getSoldierCost(selectedCount) || loading}
                 >
-                  <Text style={styles.iconText}>👥</Text>
-                  <Text style={styles.hireButtonText}>
-                    {selectedCount} Soldato İşe Al
-                  </Text>
+                  {loading ? (
+                    <ActivityIndicator size="small" color="#000" />
+                  ) : (
+                    <>
+                      <Text style={styles.iconText}>🏭</Text>
+                      <Text style={styles.hireButtonText}>
+                        {selectedCount} Soldato Sipariş Ver
+                      </Text>
+                    </>
+                  )}
                 </TouchableOpacity>
+
+                <Text style={styles.infoText}>
+                  ⏱️ Her soldato 100 saniye üretilir. Uygulama kapalıyken de üretim devam eder.
+                </Text>
               </>
             ) : (
               <View style={styles.noSlotsCard}>
-                <Text style={styles.noSlotsTitle}>Soldato Alınamıyor</Text>
+                <Text style={styles.noSlotsTitle}>Soldato Sipariş Edilemiyor</Text>
                 <Text style={styles.noSlotsText}>
-                  {availableSlots === 0 
-                    ? 'Soldato slotunuz dolu. Seviye atlayarak daha fazla slot kazanın.'
+                  {availableSlots === 0
+                    ? 'Soldato slotunuz dolu veya tüm slotlar üretimde. Seviye atlayarak daha fazla slot kazanın.'
                     : 'Yeterli paranız yok. Daha fazla para kazanın.'
                   }
                 </Text>
@@ -230,7 +370,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
     borderRadius: 15,
     width: '95%',
-    height: '85%',
+    maxHeight: '90%',
     borderWidth: 2,
     borderColor: '#d4af37',
     marginTop: 60,
@@ -272,11 +412,62 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
   },
+  productionCard: {
+    backgroundColor: '#2a3a2a',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#4a6a4a',
+  },
+  productionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  productionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#66bb6a',
+  },
+  productionInfo: {
+    marginBottom: 10,
+  },
+  productionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 5,
+  },
+  productionLabel: {
+    color: '#aaa',
+    fontSize: 14,
+  },
+  productionValue: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  productionTimer: {
+    color: '#ffa726',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  productionProgress: {
+    height: 6,
+    backgroundColor: '#333',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  productionProgressBar: {
+    height: '100%',
+    backgroundColor: '#66bb6a',
+  },
   statusCard: {
     backgroundColor: '#2a2a2a',
     borderRadius: 10,
     padding: 15,
-    marginBottom: 20,
+    marginBottom: 15,
   },
   statusTitle: {
     fontSize: 16,
@@ -299,7 +490,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   counterSection: {
-    marginBottom: 20,
+    marginBottom: 15,
   },
   sectionTitle: {
     fontSize: 16,
@@ -329,7 +520,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   presetSection: {
-    marginBottom: 20,
+    marginBottom: 15,
   },
   presetButtons: {
     flexDirection: 'row',
@@ -381,6 +572,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 15,
     borderRadius: 10,
+    marginBottom: 10,
   },
   hireButtonDisabled: {
     backgroundColor: '#666',
@@ -391,6 +583,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 8,
     fontSize: 16,
+  },
+  infoText: {
+    color: '#888',
+    fontSize: 12,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   noSlotsCard: {
     backgroundColor: '#2a1a1a',
