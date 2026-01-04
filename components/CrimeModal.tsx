@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,9 +7,14 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  Image,
+  Dimensions,
 } from 'react-native';
-import { X, Zap, DollarSign, Clock, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Lock, Star, Building, Globe, Users } from 'lucide-react-native';
+import { X, Zap, DollarSign, Clock, Lock, Star, Building, Globe, Users, ChevronRight } from 'lucide-react-native';
 import { Crime } from '@/types/game';
+
+const { width } = Dimensions.get('window');
+const CARD_WIDTH = (width - 48) / 2; // 2 columns with gaps
 
 interface CrimeModalProps {
   visible: boolean;
@@ -21,14 +26,42 @@ interface CrimeModalProps {
   onCommitCrime: (crimeId: string) => { success: boolean; message: string; reward?: number; xp?: number };
 }
 
+// Local crime images mapping
+const crimeImages: { [key: string]: any } = {
+  'street_1': require('@/assets/images/crimes/crime_graffiti_1767282637364.png'),
+  'street_2': require('@/assets/images/crimes/crime_phone_theft_1767282682940.png'),
+  'street_3': require('@/assets/images/crimes/crime_store_robbery_1767282699730.png'),
+  'street_4': require('@/assets/images/crimes/crime_car_theft_1767282717126.png'),
+  'street_5': require('@/assets/images/crimes/crime_house_burglary_1767282740424.png'),
+  'business_1': require('@/assets/images/crimes/crime_fake_documents_1767282773907.png'),
+  'business_2': require('@/assets/images/crimes/crime_smuggling_1767282799949.png'),
+  'business_3': require('@/assets/images/crimes/crime_money_laundering_1767282818924.png'),
+  'business_4': require('@/assets/images/crimes/crime_casino_1767282836700.png'),
+  'business_5': require('@/assets/images/crimes/crime_bank_heist_1767282856117.png'),
+  'political_1': require('@/assets/images/crimes/crime_bribery_1767282904066.png'),
+  'political_2': require('@/assets/images/crimes/crime_election_fraud_1767282925718.png'),
+  'political_3': require('@/assets/images/crimes/crime_judge_bribe_1767282963768.png'),
+  'political_4': require('@/assets/images/crimes/crime_police_threat_1767282982960.png'),
+  'political_5': require('@/assets/images/crimes/crime_politician_control_1767283007628.png'),
+  'international_1': require('@/assets/images/crimes/crime_arms_deal_1767283134465.png'),
+  'international_2': require('@/assets/images/crimes/crime_drug_cartel_1767283155030.png'),
+};
+
 export default function CrimeModal({ visible, onClose, crimes, playerLevel, activeCrimeTimeRemaining, isCommittingCrime, onCommitCrime }: CrimeModalProps) {
   const [selectedCategory, setSelectedCategory] = useState<'street' | 'business' | 'political' | 'international'>('street');
 
+  console.log('CrimeModal Render:', {
+    visible,
+    totalCrimes: crimes.length,
+    selectedCategory,
+    filteredCount: crimes.filter(c => c.category === selectedCategory).length
+  });
+
   const categories = [
     { id: 'street', name: 'Sokak', icon: Users, color: '#ffa726' },
-    { id: 'business', name: 'İş Dünyası', icon: Building, color: '#66bb6a' },
+    { id: 'business', name: 'İş', icon: Building, color: '#66bb6a' },
     { id: 'political', name: 'Politik', icon: Star, color: '#ab47bc' },
-    { id: 'international', name: 'Uluslararası', icon: Globe, color: '#ff6b6b' },
+    { id: 'international', name: 'Global', icon: Globe, color: '#ff6b6b' },
   ];
 
   const getRiskColor = (risk: string) => {
@@ -42,19 +75,19 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
 
   const getRiskText = (risk: string) => {
     switch (risk) {
-      case 'low': return 'Düşük Risk';
-      case 'medium': return 'Orta Risk';
-      case 'high': return 'Yüksek Risk';
-      default: return 'Bilinmiyor';
+      case 'low': return 'DÜŞÜK';
+      case 'medium': return 'ORTA';
+      case 'high': return 'YÜKSEK';
+      default: return 'DÜŞÜK';
     }
   };
 
   const formatTime = (seconds: number) => {
     if (seconds < 60) return `${seconds}s`;
     const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m`;
+    if (minutes < 60) return `${minutes}dk`;
     const hours = Math.floor(minutes / 60);
-    return `${hours}h ${minutes % 60}m`;
+    return `${hours}sa ${minutes % 60}dk`;
   };
 
   const getCooldownRemaining = (crime: Crime) => {
@@ -64,57 +97,68 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
   };
 
   const handleCommitCrime = (crime: Crime) => {
-    console.log('🔥 HANDLE COMMIT CRIME CALLED:', crime.name);
-
     if (isCommittingCrime) {
-      Alert.alert('İş İşleniyor', `Şu anda başka bir İş işliyorsunuz! ${activeCrimeTimeRemaining} saniye kaldı.`);
+      Alert.alert('İş İşleniyor', `Başka bir iş işliyorsunuz! ${activeCrimeTimeRemaining}s kaldı.`);
       return;
     }
-
     if (playerLevel < crime.requiredLevel) {
-      console.log('❌ Level requirement not met');
-      Alert.alert('Seviye Yetersiz', `Bu İş için ${crime.requiredLevel}. seviyeye ulaşmalısınız!`);
+      Alert.alert('Seviye Yetersiz', `Bu iş için ${crime.requiredLevel}. seviyeye ulaşmalısınız!`);
       return;
     }
-
     const cooldownRemaining = getCooldownRemaining(crime);
     if (cooldownRemaining > 0) {
-      console.log('❌ Crime on cooldown');
-      Alert.alert('Bekleme Süresi', `Bu İşi ${Math.ceil(cooldownRemaining)} saniye sonra tekrar işleyebilirsiniz!`);
+      Alert.alert('Bekleme', `Bu işi ${formatTime(Math.ceil(cooldownRemaining))} sonra tekrar yapabilirsiniz!`);
       return;
     }
 
-    console.log('✅ All checks passed, showing confirmation dialog');
-
-    // Execute the crime
-    console.log('🔥 EXECUTING CRIME:', crime.name);
-    try {
-      const result = onCommitCrime(crime.id);
-      console.log('🔥 CRIME EXECUTION RESULT:', result);
-
-      if (result.success) {
-        // Show success alert with details
-        Alert.alert(
-          '✓ İş Başlatıldı!',
-          `${crime.name} işleniyor...\n\n⏱️ Süre: ${formatTime(crime.duration)}\n💵 Tahmini Kazanç: $${Math.floor(crime.baseReward * (1 + (playerLevel - crime.requiredLevel) * 0.1)).toLocaleString()}\n⭐ Tahmini XP: ${crime.baseXP}\n🎯 Başarı Oranı: %${crime.successRate}`,
-          [{ text: 'Tamam', style: 'default' }]
-        );
-      }
-    } catch (error) {
-      console.error('🔥 CRIME EXECUTION ERROR:', error);
+    const result = onCommitCrime(crime.id);
+    if (result.success) {
+      Alert.alert('✓ İş Başlatıldı!', `${crime.name} işleniyor...\n⏱️ ${formatTime(crime.duration)}\n🎯 %${crime.successRate} başarı`);
     }
   };
 
   const filteredCrimes = crimes.filter(crime => crime.category === selectedCategory);
+  const selectedCategoryData = categories.find(c => c.id === selectedCategory);
+
+  const getCrimeImage = (crimeId: string) => {
+    // Check local images first
+    if (crimeImages[crimeId]) {
+      return crimeImages[crimeId];
+    }
+
+    // Handpick images for remaining international crimes
+    if (crimeId === 'international_3') {
+      // Human Trafficking / Smuggling -> Shipping Containers
+      return { uri: 'https://images.unsplash.com/photo-1505163155799-a68132aa4105?w=400' };
+    }
+    if (crimeId === 'international_4') {
+      // Cyber Attack -> Hacker/Code
+      return { uri: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=400' };
+    }
+    if (crimeId === 'international_5') {
+      // Global Empire -> City Skyline
+      return { uri: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=400' };
+    }
+
+    // Fallback definition image if available, else generic
+    const crime = crimes.find(c => c.id === crimeId);
+    if (crime?.imageUrl && crime.imageUrl.startsWith('http')) {
+      return { uri: crime.imageUrl };
+    }
+
+    // Absolute fallback
+    return { uri: 'https://images.unsplash.com/photo-1470790376778-a9fbc86d70e2?w=400' };
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
         <View style={styles.modal}>
+          {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>İŞLER</Text>
+            <Text style={styles.title}>SUÇ İŞLE</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <X size={24} color="#999" />
+              <X size={24} color="#888" />
             </TouchableOpacity>
           </View>
 
@@ -122,24 +166,18 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
           <View style={styles.categoryTabs}>
             {categories.map(category => {
               const IconComponent = category.icon;
+              const isSelected = selectedCategory === category.id;
               return (
                 <TouchableOpacity
                   key={category.id}
                   style={[
                     styles.categoryTab,
-                    selectedCategory === category.id && styles.activeCategoryTab,
-                    { borderBottomColor: category.color }
+                    isSelected && { backgroundColor: `${category.color}22`, borderColor: category.color }
                   ]}
                   onPress={() => setSelectedCategory(category.id as any)}
                 >
-                  <IconComponent
-                    size={16}
-                    color={selectedCategory === category.id ? category.color : '#666'}
-                  />
-                  <Text style={[
-                    styles.categoryTabText,
-                    selectedCategory === category.id && { color: category.color }
-                  ]}>
+                  <IconComponent size={16} color={isSelected ? category.color : '#666'} />
+                  <Text style={[styles.categoryTabText, isSelected && { color: category.color }]}>
                     {category.name}
                   </Text>
                 </TouchableOpacity>
@@ -147,105 +185,101 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
             })}
           </View>
 
-          {/* Crimes List */}
-          <ScrollView style={styles.crimesList}>
-            {isCommittingCrime && (
-              <View style={styles.activeCrimeNotice}>
-                <Clock size={20} color="#ffa726" />
-                <Text style={styles.activeCrimeText}>
-                  Şu anda iş işliyorsunuz! {activeCrimeTimeRemaining} saniye kaldı.
-                </Text>
-              </View>
-            )}
+          {/* Active Crime Notice */}
+          {isCommittingCrime && (
+            <View style={styles.activeCrimeNotice}>
+              <Clock size={18} color="#ffa726" />
+              <Text style={styles.activeCrimeText}>İş işleniyor! {activeCrimeTimeRemaining}s kaldı</Text>
+            </View>
+          )}
 
-            {filteredCrimes.map(crime => {
-              const isLocked = playerLevel < crime.requiredLevel;
-              const cooldownRemaining = getCooldownRemaining(crime);
-              const isOnCooldown = cooldownRemaining > 0 || isCommittingCrime;
-              const levelMultiplier = 1 + (playerLevel - crime.requiredLevel) * 0.1;
-              const estimatedReward = Math.floor(crime.baseReward * Math.max(1, levelMultiplier));
-              const estimatedXP = Math.floor(crime.baseXP * Math.max(1, levelMultiplier));
+          {/* Crimes Grid - 2 columns with image on top */}
+          <ScrollView style={styles.crimesList} showsVerticalScrollIndicator={false}>
+            <View style={styles.crimesGrid}>
+              {filteredCrimes.map(crime => {
+                const isLocked = playerLevel < crime.requiredLevel;
+                const cooldownRemaining = getCooldownRemaining(crime);
+                const isOnCooldown = cooldownRemaining > 0 || isCommittingCrime;
+                const levelMultiplier = 1 + (playerLevel - crime.requiredLevel) * 0.1;
+                const estimatedReward = Math.floor(crime.baseReward * Math.max(1, levelMultiplier));
 
-              return (
-                <View key={crime.id} style={[
-                  styles.crimeCard,
-                  isLocked && styles.lockedCard,
-                  isOnCooldown && styles.cooldownCard
-                ]}>
-                  <View style={styles.crimeHeader}>
-                    <View style={styles.crimeInfo}>
-                      <Text style={[styles.crimeName, isLocked && styles.lockedText]}>
-                        {crime.name}
-                      </Text>
-                      <Text style={[styles.crimeDescription, isLocked && styles.lockedText]}>
-                        {crime.description}
-                      </Text>
-                    </View>
-                    <View style={styles.crimeLevel}>
-                      {isLocked ? (
-                        <Lock size={20} color="#666" />
-                      ) : isOnCooldown ? (
-                        <Clock size={20} color="#ffa726" />
-                      ) : (
-                        <CheckCircle size={20} color="#66bb6a" />
+                return (
+                  <TouchableOpacity
+                    key={crime.id}
+                    style={[
+                      styles.crimeCard,
+                      isLocked && styles.lockedCard,
+                      isOnCooldown && !isLocked && styles.cooldownCard
+                    ]}
+                    onPress={() => !isLocked && !isOnCooldown && handleCommitCrime(crime)}
+                    disabled={isLocked || isOnCooldown}
+                    activeOpacity={0.7}
+                  >
+                    {/* Top: Image */}
+                    <View style={styles.imageSection}>
+                      <Image
+                        source={getCrimeImage(crime.id)}
+                        style={styles.crimeImage}
+                        resizeMode="cover"
+                      />
+                      {/* Risk Badge */}
+                      <View style={[styles.riskBadge, { backgroundColor: getRiskColor(crime.riskLevel || 'low') }]}>
+                        <Text style={styles.riskText}>{getRiskText(crime.riskLevel || 'low')}</Text>
+                      </View>
+                      {/* Level Badge */}
+                      <View style={styles.levelBadge}>
+                        <Text style={styles.levelText}>Lv.{crime.requiredLevel}</Text>
+                      </View>
+                      {/* Lock Overlay */}
+                      {isLocked && (
+                        <View style={styles.lockOverlay}>
+                          <Lock size={32} color="#fff" />
+                          <Text style={styles.lockText}>Seviye {crime.requiredLevel}</Text>
+                        </View>
                       )}
                     </View>
-                  </View>
 
-                  <View style={styles.crimeStats}>
-                    <View style={styles.statRow}>
-                      <View style={styles.statItem}>
-                        <Clock size={14} color="#ffa726" />
-                        <Text style={styles.statText}>{formatTime(crime.duration)}</Text>
-                      </View>
-                      <View style={styles.statItem}>
-                        <Zap size={14} color="#e91e63" />
-                        <Text style={styles.statText}>{crime.energyCost} enerji</Text>
-                      </View>
-                    </View>
+                    {/* Bottom: Info */}
+                    <View style={styles.infoSection}>
+                      <Text style={styles.crimeName} numberOfLines={1}>{crime.name}</Text>
 
-                    <View style={styles.statRow}>
-                      <View style={styles.statItem}>
-                        <Text style={styles.requirementText}>
-                          Gerekli Seviye: {crime.requiredLevel}
+                      {/* Stats Row */}
+                      <View style={styles.statsRow}>
+                        <View style={styles.stat}>
+                          <DollarSign size={12} color="#66bb6a" />
+                          <Text style={styles.statValue}>${estimatedReward.toLocaleString()}</Text>
+                        </View>
+                        <View style={styles.stat}>
+                          <Zap size={12} color="#e91e63" />
+                          <Text style={styles.statValue}>{crime.energyCost}</Text>
+                        </View>
+                      </View>
+
+                      {/* Duration & Success */}
+                      <View style={styles.bottomRow}>
+                        <View style={styles.stat}>
+                          <Clock size={11} color="#29b6f6" />
+                          <Text style={styles.durationText}>{formatTime(crime.duration)}</Text>
+                        </View>
+                        <Text style={[styles.successRate, { color: getRiskColor(crime.riskLevel || 'low') }]}>
+                          %{crime.successRate}
                         </Text>
                       </View>
-                      <View style={styles.statItem}>
-                        <Text style={[styles.statText, { color: '#66bb6a' }]}>
-                          %{crime.successRate} başarı
+                    </View>
+
+                    {/* Cooldown Overlay */}
+                    {isOnCooldown && !isLocked && (
+                      <View style={styles.cooldownOverlay}>
+                        <Clock size={28} color="#ffa726" />
+                        <Text style={styles.cooldownText}>
+                          {isCommittingCrime ? `${activeCrimeTimeRemaining}s` : formatTime(Math.ceil(cooldownRemaining))}
                         </Text>
                       </View>
-                    </View>
-                  </View>
-
-                  {isLocked ? (
-                    <View style={styles.lockedButton}>
-                      <Lock size={16} color="#666" />
-                      <Text style={styles.lockedButtonText}>
-                        {crime.requiredLevel}. seviyede açılır
-                      </Text>
-                    </View>
-                  ) : isOnCooldown ? (
-                    <View style={styles.cooldownButton}>
-                      <Clock size={16} color="#ffa726" />
-                      <Text style={styles.cooldownButtonText}>
-                        {isCommittingCrime ? `iş işleniyor (${activeCrimeTimeRemaining}s)` : `${Math.ceil(cooldownRemaining)}s kaldı`}
-                      </Text>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.commitButton}
-                      onPress={() => {
-                        console.log('🚨 COMMIT BUTTON PRESSED FOR:', crime.name);
-                        handleCommitCrime(crime);
-                      }}
-                    >
-                      <Text style={styles.commitButtonText}> Yap </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              );
-            })}
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </ScrollView>
         </View>
       </View>
@@ -256,194 +290,196 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modal: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 15,
-    width: '98%',
-    height: '90%',
-    borderWidth: 2,
-    borderColor: '#d4af37',
+    backgroundColor: '#0d0d0d',
+    borderRadius: 20,
+    width: '95%',
+    height: '88%',
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: '#1a1a1a',
   },
   title: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#d4af37',
+    letterSpacing: 2,
   },
   closeButton: {
     padding: 5,
   },
   categoryTabs: {
     flexDirection: 'row',
-    backgroundColor: '#2a2a2a',
-    margin: 15,
-    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
   },
   categoryTab: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  activeCategoryTab: {
-    backgroundColor: '#333',
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#333',
   },
   categoryTabText: {
     color: '#666',
-    marginLeft: 5,
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  activeCrimeNotice: {
+    backgroundColor: 'rgba(255, 167, 38, 0.15)',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
+  activeCrimeText: {
+    color: '#ffa726',
+    fontSize: 13,
     fontWeight: 'bold',
   },
   crimesList: {
     flex: 1,
-    padding: 15,
+  },
+  crimesGrid: {
+    padding: 12,
+    gap: 12,
   },
   crimeCard: {
-    backgroundColor: '#2a2a2a',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 12,
+    width: '100%',
+    backgroundColor: '#151515',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#2a2a2a',
+    overflow: 'hidden',
+    marginBottom: 4,
   },
   lockedCard: {
-    backgroundColor: '#1a1a1a',
     opacity: 0.6,
   },
   cooldownCard: {
-    backgroundColor: '#2a1a1a',
-    borderColor: '#ffa726',
+    opacity: 0.7,
   },
-  crimeHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 10,
+  imageSection: {
+    width: '100%',
+    height: 140, // Banner style
+    position: 'relative',
   },
-  crimeInfo: {
-    flex: 1,
+  crimeImage: {
+    width: '100%',
+    height: '100%',
+  },
+  riskBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  riskText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  levelBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  levelText: {
+    color: '#d4af37',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  lockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  lockText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  infoSection: {
+    padding: 12,
   },
   crimeName: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 4,
+    marginBottom: 8,
   },
-  crimeDescription: {
-    fontSize: 13,
-    color: '#ccc',
-    lineHeight: 18,
-  },
-  lockedText: {
-    color: '#666',
-  },
-  crimeLevel: {
-    marginLeft: 10,
-  },
-  crimeStats: {
-    marginBottom: 12,
-  },
-  statRow: {
+  statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 8,
+    backgroundColor: '#1a1a1a',
+    padding: 8,
+    borderRadius: 8,
   },
-  statItem: {
+  stat: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    gap: 4,
   },
-  statText: {
-    color: '#fff',
-    marginLeft: 4,
+  statValue: {
+    color: '#ccc',
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '600',
   },
-  requirementRow: {
+  bottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-  },
-  requirementText: {
-    fontSize: 11,
-    color: '#999',
-  },
-  levelRequirement: {
-    fontSize: 11,
-    color: '#ffa726',
-    fontStyle: 'italic',
+    alignItems: 'center',
     marginTop: 4,
   },
-  cooldownText: {
-    fontSize: 11,
+  durationText: {
     color: '#999',
-  },
-  commitButton: {
-    backgroundColor: '#d4af37',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  commitButtonText: {
-    color: '#000',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  lockedButton: {
-    backgroundColor: '#333',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  lockedButtonText: {
-    color: '#666',
-    marginLeft: 5,
     fontSize: 12,
   },
-  cooldownButton: {
-    backgroundColor: '#3a2a1a',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
+  successRate: {
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  cooldownOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.9)',
     justifyContent: 'center',
-  },
-  cooldownButtonText: {
-    color: '#ffa726',
-    marginLeft: 5,
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  activeCrimeNotice: {
-    backgroundColor: '#2a1a1a',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
-    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ffa726',
+    gap: 8,
   },
-  activeCrimeText: {
+  cooldownText: {
     color: '#ffa726',
-    marginLeft: 10,
-    fontSize: 14,
+    fontSize: 20,
     fontWeight: 'bold',
-    flex: 1,
   },
 });

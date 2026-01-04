@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   Image,
+  ImageBackground,
   Modal,
   TextInput,
   ActivityIndicator,
@@ -37,7 +38,11 @@ import SoldierHiringModal from '@/components/SoldierHiringModal';
 import AttackModal from '@/components/AttackModal';
 import NotificationsModal from '@/components/NotificationsModal';
 import ProfileEditModal from '@/components/ProfileEditModal';
+import MarketModal from '@/components/MarketModal';
+import StoreModal from '@/components/StoreModal';
+import TutorialOverlay from '@/components/TutorialOverlay';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useTutorial } from '@/contexts/TutorialContext';
 
 import { router } from 'expo-router';
 
@@ -51,6 +56,7 @@ interface Notification {
 export default function HomeScreen() {
   const { gameService, playerStats, businesses, territories, crimes, leaderboard, activeCrimeTimeRemaining, isCommittingCrime } = useGameService();
   const { t } = useLanguage();
+  const { checkStepCompletion, currentStep } = useTutorial();
   const [crimeModalVisible, setCrimeModalVisible] = useState(false);
   const [leaderboardModalVisible, setLeaderboardModalVisible] = useState(false);
   const [chatModalVisible, setChatModalVisible] = useState(false);
@@ -59,6 +65,7 @@ export default function HomeScreen() {
 
   const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [marketModalVisible, setMarketModalVisible] = useState(false);
   const [mtConversionModalVisible, setMtConversionModalVisible] = useState(false);
   const [mtConversionAmount, setMtConversionAmount] = useState('1');
   const [mtConversionLoading, setMtConversionLoading] = useState(false);
@@ -93,6 +100,13 @@ export default function HomeScreen() {
 
     loadAccumulatedIncome();
   }, [gameService, incomeLoaded]);
+
+  // Tutorial: Eğer zaten askeri varsa soldato adımını tamamla
+  useEffect(() => {
+    if (currentStep === 2 && playerStats.soldiers > 0) {
+      checkStepCompletion('soldier');
+    }
+  }, [currentStep, playerStats.soldiers]);
 
   // Gerçek zamanlı gelir hesaplama (uygulama açıkken)
   useEffect(() => {
@@ -149,6 +163,8 @@ export default function HomeScreen() {
     console.log('🔥 HIRE RESULT:', result);
     if (result.success) {
       addNotification('success', result.message);
+      // Tutorial: Soldato üret adımı tamamlandı
+      checkStepCompletion('soldier');
     } else {
       addNotification('error', result.message);
     }
@@ -196,6 +212,8 @@ export default function HomeScreen() {
 
     if (result.success) {
       addNotification('success', t.home.crimeSuccess.replace('{reward}', `$${result.reward?.toLocaleString() || '0'}`).replace('{xp}', result.xp?.toString() || '0'));
+      // Tutorial: Suç işle adımı tamamlandı
+      checkStepCompletion('crime');
     } else {
       addNotification('error', result.message);
     }
@@ -382,6 +400,14 @@ export default function HomeScreen() {
               <Sword size={24} color="#ff6b6b" />
               <Text style={styles.actionText}>{t.home.attack}</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => setMarketModalVisible(true)}
+            >
+              <ShoppingCart size={24} color="#a855f7" />
+              <Text style={styles.actionText}>Karaborsa</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -453,6 +479,7 @@ export default function HomeScreen() {
         onOrderSoldiers={async (count) => await gameService.orderSoldiers(count)}
         onCheckProduction={async () => await gameService.checkSoldierProduction()}
         onGetProductionStatus={async () => await gameService.getSoldierProductionStatus()}
+        onInstantFinish={async () => await gameService.instantFinishSoldierTraining()}
       />
 
       <AttackModal
@@ -481,109 +508,18 @@ export default function HomeScreen() {
         }}
       />
 
-      {/* MT Coin Conversion Modal */}
-      <Modal visible={mtConversionModalVisible} transparent animationType="fade">
-        <View style={styles.mtModalOverlay}>
-          <View style={styles.mtModal}>
-            <View style={styles.mtModalHeader}>
-              <Text style={styles.mtModalTitle}>💎 Para → MT Coin</Text>
-              <TouchableOpacity onPress={() => setMtConversionModalVisible(false)}>
-                <Text style={styles.mtCloseBtn}>✕</Text>
-              </TouchableOpacity>
-            </View>
+      <MarketModal
+        visible={marketModalVisible}
+        onClose={() => setMarketModalVisible(false)}
+      />
 
-            <View style={styles.mtModalContent}>
-              <Text style={styles.mtInfoText}>$100.000 = 1 MT Coin</Text>
+      <StoreModal
+        visible={mtConversionModalVisible}
+        onClose={() => setMtConversionModalVisible(false)}
+      />
 
-              <View style={styles.mtBalanceRow}>
-                <Text style={styles.mtBalanceLabel}>Mevcut Para:</Text>
-                <Text style={styles.mtBalanceValue}>${formatNumber(playerStats.cash)}</Text>
-              </View>
-              <View style={styles.mtBalanceRow}>
-                <Text style={styles.mtBalanceLabel}>Mevcut MT:</Text>
-                <Text style={styles.mtBalanceValueMT}>💎 {playerStats.mtCoins || 0}</Text>
-              </View>
-              <View style={styles.mtBalanceRow}>
-                <Text style={styles.mtBalanceLabel}>Maks. Dönüştürme:</Text>
-                <Text style={styles.mtBalanceValue}>{Math.floor(playerStats.cash / 100000)} MT</Text>
-              </View>
-
-              <Text style={styles.mtInputLabel}>Kaç MT istiyorsunuz?</Text>
-              <TextInput
-                style={styles.mtInput}
-                value={mtConversionAmount}
-                onChangeText={setMtConversionAmount}
-                keyboardType="number-pad"
-                placeholder="1"
-                placeholderTextColor="#666"
-              />
-
-              <View style={styles.mtPresetRow}>
-                {[1, 5, 10, 25].map(amount => (
-                  <TouchableOpacity
-                    key={amount}
-                    style={[
-                      styles.mtPresetBtn,
-                      parseInt(mtConversionAmount) === amount && styles.mtPresetBtnActive
-                    ]}
-                    onPress={() => setMtConversionAmount(amount.toString())}
-                    disabled={playerStats.cash < amount * 100000}
-                  >
-                    <Text style={[
-                      styles.mtPresetText,
-                      parseInt(mtConversionAmount) === amount && styles.mtPresetTextActive,
-                      playerStats.cash < amount * 100000 && styles.mtPresetTextDisabled
-                    ]}>
-                      {amount} MT
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <View style={styles.mtCostRow}>
-                <Text style={styles.mtCostLabel}>Ödenecek:</Text>
-                <Text style={[
-                  styles.mtCostValue,
-                  playerStats.cash < parseInt(mtConversionAmount || '0') * 100000 && { color: '#ff6b6b' }
-                ]}>
-                  ${(parseInt(mtConversionAmount || '0') * 100000).toLocaleString()}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.mtConvertBtn,
-                  (mtConversionLoading || playerStats.cash < parseInt(mtConversionAmount || '0') * 100000 || parseInt(mtConversionAmount || '0') < 1) && styles.mtConvertBtnDisabled
-                ]}
-                disabled={mtConversionLoading || playerStats.cash < parseInt(mtConversionAmount || '0') * 100000 || parseInt(mtConversionAmount || '0') < 1}
-                onPress={async () => {
-                  const amount = parseInt(mtConversionAmount || '0');
-                  if (amount < 1) {
-                    Alert.alert('Hata', 'En az 1 MT dönüştürmelisiniz!');
-                    return;
-                  }
-                  setMtConversionLoading(true);
-                  const result = await gameService.convertCashToMT(amount);
-                  setMtConversionLoading(false);
-                  if (result.success) {
-                    addNotification('success', result.message);
-                    setMtConversionModalVisible(false);
-                    setMtConversionAmount('1');
-                  } else {
-                    Alert.alert('Hata', result.message);
-                  }
-                }}
-              >
-                {mtConversionLoading ? (
-                  <ActivityIndicator size="small" color="#000" />
-                ) : (
-                  <Text style={styles.mtConvertBtnText}>💎 Dönüştür</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* Tutorial Overlay */}
+      <TutorialOverlay />
     </View>
   );
 }

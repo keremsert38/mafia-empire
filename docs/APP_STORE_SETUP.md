@@ -99,7 +99,7 @@ Copyright: 2024 Your Company Name
 
 🔫 ÖZELLİKLER:
 
-💰 SUÇ İŞLE
+💰 isler
 • Farklı suç türlerinden birini seç
 • Risk ve ödül dengesi kur
 • Deneyim kazan ve seviye atla

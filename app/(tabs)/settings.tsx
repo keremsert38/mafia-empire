@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,16 @@ import {
   Alert,
   Platform,
   Modal,
+  Switch,
 } from 'react-native';
 import { router } from 'expo-router';
-import { LogOut, User, Globe, Check, HelpCircle, Trash2 } from 'lucide-react-native';
+import { LogOut, User, Globe, Check, HelpCircle, Trash2, Music } from 'lucide-react-native';
 import { useGameService } from '@/hooks/useGameService';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import ProfileModal from '@/components/ProfileModal';
 import HowToPlayModal from '@/components/HowToPlayModal';
+import { musicService } from '@/services/MusicService';
 
 export default function SettingsScreen() {
   const { gameService, playerStats } = useGameService();
@@ -25,6 +27,17 @@ export default function SettingsScreen() {
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [howToPlayModalVisible, setHowToPlayModalVisible] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [musicEnabled, setMusicEnabled] = useState(true);
+
+  // Müzik durumunu yükle
+  useEffect(() => {
+    setMusicEnabled(musicService.getEnabled());
+  }, []);
+
+  const handleMusicToggle = async (value: boolean) => {
+    setMusicEnabled(value);
+    await musicService.setEnabled(value);
+  };
 
   const performLogout = async () => {
     console.log('🚪 PERFORMING DIRECT LOGOUT');
@@ -213,6 +226,28 @@ export default function SettingsScreen() {
           subtitle={language === 'tr' ? 'Oyun rehberi ve ipuçları' : 'Game guide and tips'}
           onPress={() => setHowToPlayModalVisible(true)}
         />
+      </View>
+
+      {/* Ses Ayarları */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>{language === 'tr' ? 'Ses' : 'Sound'}</Text>
+        <View style={styles.settingItem}>
+          <View style={styles.settingLeft}>
+            <View style={styles.iconContainer}>
+              <Music size={20} color="#9c27b0" />
+            </View>
+            <View style={styles.settingText}>
+              <Text style={styles.settingTitle}>{language === 'tr' ? 'Arka Plan Müziği' : 'Background Music'}</Text>
+              <Text style={styles.settingSubtitle}>{language === 'tr' ? 'Oyun müziğini aç/kapat' : 'Toggle game music'}</Text>
+            </View>
+          </View>
+          <Switch
+            value={musicEnabled}
+            onValueChange={handleMusicToggle}
+            trackColor={{ false: '#333', true: '#d4af37' }}
+            thumbColor={musicEnabled ? '#fff' : '#666'}
+          />
+        </View>
       </View>
 
       {/* Dil ve Bölge */}

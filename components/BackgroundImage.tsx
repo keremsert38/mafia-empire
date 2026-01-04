@@ -1,5 +1,5 @@
 import React from 'react';
-import { ImageBackground, StyleSheet, ViewStyle, View, Image } from 'react-native';
+import { ImageBackground, StyleSheet, ViewStyle } from 'react-native';
 
 interface BackgroundImageProps {
   children: React.ReactNode;
@@ -7,11 +7,15 @@ interface BackgroundImageProps {
 }
 
 export default function BackgroundImage({ children, style }: BackgroundImageProps) {
-  // Geçici olarak sadece siyah arka plan kullan
   return (
-    <View style={[styles.fallbackBackground, style]}>
+    <ImageBackground
+      source={require('../assets/images/city-background.png')}
+      style={[styles.background, style]}
+      imageStyle={styles.imageStyle}
+      resizeMode="cover"
+    >
       {children}
-    </View>
+    </ImageBackground>
   );
 }
 
@@ -20,23 +24,9 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
-    backgroundColor: '#000000', // Varsayılan siyah arka plan (resim yüklenemezse)
+    backgroundColor: '#000000',
   },
   imageStyle: {
-    opacity: 0.08, // Fotoğrafı çok şeffaf yap, neredeyse görünmez
-  },
-  fallbackBackground: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#000000', // Tam siyah arka plan
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject, // top: 0, left: 0, right: 0, bottom: 0 ile aynı
-    backgroundColor: '#000000', // Tam siyah overlay - resmin üzerine tamamen siyah katman
-  },
-  contentContainer: {
-    flex: 1,
-    zIndex: 1, // Overlay'in üstünde olması için
+    opacity: 0.7, // Görsel daha belirgin
   },
 });

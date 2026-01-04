@@ -20,9 +20,11 @@ import {
   Clock,
   ChevronUp,
   ChevronDown,
+  Crown,
 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useGameService } from '@/hooks/useGameService';
+import PlayerProfileModal from './PlayerProfileModal';
 
 interface LeaderboardModalProps {
   visible: boolean;
@@ -41,6 +43,278 @@ interface LeaderboardEntry {
   is_active: boolean;
   last_active: string;
   score_change: number;
+}
+
+export default function LeaderboardModal({ visible, onClose }: LeaderboardModalProps) {
+  const { playerStats } = useGameService();
+  const [activeTab, setActiveTab] = useState<'level' | 'respect' | 'territories'>('level');
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+
+  // Profile Modal State
+  const [selectedPlayer, setSelectedPlayer] = useState<LeaderboardEntry | null>(null);
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+
+  const fetchLeaderboard = useCallback(async (type: 'level' | 'respect' | 'territories'): Promise<void> => {
+    if (refreshing) return;
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase.rpc('get_leaderboard_by_type', {
+        leaderboard_type: type,
+        limit_count: 100
+      });
+
+      if (error) {
+        console.error('Leaderboard error:', error);
+        return;
+      }
+
+      setLeaderboard(data || []);
+      setLastUpdate(new Date());
+    } catch (error) {
+      console.error('Leaderboard fetch error:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [refreshing]);
+
+  const handleTabChange = useCallback(async (tab: 'level' | 'respect' | 'territories'): Promise<void> => {
+    setActiveTab(tab);
+    await fetchLeaderboard(tab);
+  }, [fetchLeaderboard]);
+
+  useEffect(() => {
+    if (!visible) return;
+
+    fetchLeaderboard(activeTab);
+    const intervalId = setInterval(() => {
+      setRefreshing(true);
+      fetchLeaderboard(activeTab);
+    }, 10000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [visible, activeTab, fetchLeaderboard]);
+
+  const formatScore = (score: number): string => {
+    return score.toString();
+  };
+
+  const formatLastActive = (lastActive: string): string => {
+    const date = new Date(lastActive);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (diff < 60) return 'Az önce';
+    if (diff < 3600) return `${Math.floor(diff / 60)}d önce`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}s önce`;
+    return `${Math.floor(diff / 86400)}g önce`;
+  };
+
+  const viewPlayerProfile = (player: LeaderboardEntry): void => {
+    setSelectedPlayer(player);
+    setProfileModalVisible(true);
+  };
+
+  const getTabIcon = (tab: string) => {
+    switch (tab) {
+      case 'level':
+        return <TrendingUp size={16} color={activeTab === tab ? '#000' : '#666'} />;
+      case 'respect':
+        return <Star size={16} color={activeTab === tab ? '#000' : '#666'} />;
+      case 'territories':
+        return <MapPin size={16} color={activeTab === tab ? '#000' : '#666'} />;
+      default:
+        return <TrendingUp size={16} color="#666" />;
+    }
+  };
+
+  const getTabTitle = (tab: string): string => {
+    switch (tab) {
+      case 'level':
+        return 'Seviye';
+      case 'respect':
+        return 'Saygı';
+      case 'territories':
+        return 'Bölge';
+      default:
+        return '';
+    }
+  };
+
+  const getMedalColor = (position: number): string => {
+    switch (position) {
+      case 1:
+        return '#FFD700'; // Gold
+      case 2:
+        return '#C0C0C0'; // Silver
+      case 3:
+        return '#CD7F32'; // Bronze
+      default:
+        return '#666';
+    }
+  };
+
+  return (
+    <>
+      <Modal visible={visible} animationType="slide" transparent>
+        <View style={styles.overlay}>
+          <View style={styles.modal}>
+            <View style={styles.header}>
+              <Text style={styles.title}>Sıralama Tablosu</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <X size={24} color="#999" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.tabContainer}>
+              {(['level', 'respect', 'territories'] as const).map(tab => (
+                <TouchableOpacity
+                  key={tab}
+                  style={[styles.tabButton, activeTab === tab && styles.activeTab]}
+                  onPress={() => handleTabChange(tab)}
+                >
+                  {getTabIcon(tab)}
+                  <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
+                    {getTabTitle(tab)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.updateInfo}>
+              <Clock size={12} color="#666" />
+              <Text style={styles.updateText}>
+                {lastUpdate ? `Son güncelleme: ${formatLastActive(lastUpdate.toISOString())}` : 'Yükleniyor...'}
+              </Text>
+              {refreshing && <ActivityIndicator size="small" color="#666" style={{ marginLeft: 5 }} />}
+            </View>
+
+            <ScrollView style={styles.leaderboardList}>
+              {loading && !refreshing ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#d4af37" />
+                  <Text style={styles.loadingText}>Sıralama yükleniyor...</Text>
+                </View>
+              ) : (
+                leaderboard.map((player) => (
+                  <TouchableOpacity
+                    key={player.player_id}
+                    style={[
+                      styles.playerRow,
+                      player.player_rank <= 3 && styles.topPlayerRow,
+                      playerStats && player.player_id === playerStats.id && styles.currentPlayerRow,
+                    ]}
+                    onPress={() => viewPlayerProfile(player)}
+                  >
+                    <View style={styles.positionContainer}>
+                      {player.player_rank <= 3 ? (
+                        <Trophy size={24} color={getMedalColor(player.player_rank)} />
+                      ) : (
+                        <Text style={styles.position}>{player.player_rank}</Text>
+                      )}
+                    </View>
+
+                    {/* Profile Photo */}
+                    {player.profile_image ? (
+                      <Image
+                        source={{ uri: player.profile_image }}
+                        style={styles.playerAvatar}
+                      />
+                    ) : (
+                      <View style={styles.playerAvatarPlaceholder}>
+                        <Text style={styles.playerAvatarText}>
+                          {(player.player_name || 'O').charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={styles.playerInfo}>
+                      <View style={styles.nameContainer}>
+                        {/* Don Tag for #1 */}
+                        {player.player_rank === 1 && (
+                          <View style={styles.donTag}>
+                            <Crown size={10} color="#FFD700" />
+                            <Text style={styles.donTagText}>Don</Text>
+                          </View>
+                        )}
+                        <Text style={[
+                          styles.playerName,
+                          playerStats && player.player_id === playerStats.id && styles.currentPlayerName
+                        ]}>
+                          {player.player_name}
+                        </Text>
+                        {player.is_active && (
+                          <Circle size={8} color="#4caf50" fill="#4caf50" style={{ marginLeft: 5 }} />
+                        )}
+                      </View>
+
+                      <View style={styles.playerDetails}>
+                        <Text style={styles.playerRank}>
+                          {player.rank_name} - Seviye {player.player_level}
+                        </Text>
+                        {player.score_change !== 0 && (
+                          <View style={[
+                            styles.scoreChange,
+                            player.score_change > 0 ? styles.scoreIncrease : styles.scoreDecrease
+                          ]}>
+                            {player.score_change > 0 ? (
+                              <ChevronUp size={12} color="#4caf50" />
+                            ) : (
+                              <ChevronDown size={12} color="#f44336" />
+                            )}
+                            <Text style={[
+                              styles.scoreChangeText,
+                              player.score_change > 0 ? styles.scoreIncreaseText : styles.scoreDecreaseText
+                            ]}>
+                              {Math.abs(player.score_change)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+
+                    <View style={styles.scoreContainer}>
+                      <Text style={[
+                        styles.score,
+                        playerStats && player.player_id === playerStats.id && styles.currentPlayerScore
+                      ]}>
+                        {formatScore(player.score)}
+                      </Text>
+                      <Text style={styles.lastActive}>{formatLastActive(player.last_active)}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>
+                İlk 100 oyuncu gösteriliyor • Her 10 saniyede bir güncellenir
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Player Profile Modal */}
+      <PlayerProfileModal
+        visible={profileModalVisible}
+        onClose={() => {
+          setProfileModalVisible(false);
+          setSelectedPlayer(null);
+        }}
+        playerId={selectedPlayer?.player_id || null}
+        playerName={selectedPlayer?.player_name}
+        isTopPlayer={selectedPlayer?.player_rank === 1}
+      />
+    </>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -152,6 +426,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 3,
+    flexWrap: 'wrap',
+  },
+  donTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2a2a1a',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: '#FFD700',
+  },
+  donTagText: {
+    color: '#FFD700',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginLeft: 3,
   },
   playerName: {
     fontSize: 16,
@@ -250,255 +542,3 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
-
-export default function LeaderboardModal({ visible, onClose }: LeaderboardModalProps) {
-  const { playerStats } = useGameService();
-  const [activeTab, setActiveTab] = useState<'level' | 'respect' | 'territories'>('level');
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-
-  const fetchLeaderboard = useCallback(async (type: 'level' | 'respect' | 'territories'): Promise<void> => {
-    if (refreshing) return;
-    setLoading(true);
-
-    try {
-      const { data, error } = await supabase.rpc('get_leaderboard_by_type', {
-        leaderboard_type: type,
-        limit_count: 100
-      });
-
-      if (error) {
-        console.error('Leaderboard error:', error);
-        Alert.alert('Hata', 'Sıralama verileri yüklenemedi.');
-        return;
-      }
-
-      setLeaderboard(data || []);
-      setLastUpdate(new Date());
-    } catch (error) {
-      console.error('Leaderboard fetch error:', error);
-      Alert.alert('Hata', 'Sıralama verileri yüklenemedi.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [refreshing]);
-
-  const handleTabChange = useCallback(async (tab: 'level' | 'respect' | 'territories'): Promise<void> => {
-    setActiveTab(tab);
-    await fetchLeaderboard(tab);
-  }, [fetchLeaderboard]);
-
-  useEffect(() => {
-    if (!visible) return;
-
-    fetchLeaderboard(activeTab);
-    const intervalId = setInterval(() => {
-      setRefreshing(true);
-      fetchLeaderboard(activeTab);
-    }, 10000);
-
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [visible, activeTab, fetchLeaderboard]);
-
-  const formatScore = (score: number): string => {
-    return score.toString();
-  };
-
-  const formatLastActive = (lastActive: string): string => {
-    const date = new Date(lastActive);
-    const now = new Date();
-    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (diff < 60) return 'Az önce';
-    if (diff < 3600) return `${Math.floor(diff / 60)}d önce`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}s önce`;
-    return `${Math.floor(diff / 86400)}g önce`;
-  };
-
-  const viewPlayerProfile = (player: LeaderboardEntry): void => {
-    Alert.alert(
-      `${player.player_name} - Profil`,
-      `Rütbe: ${player.rank_name}\nSeviye: ${player.player_level}\nBölge: ${player.territories || 0}\nSkor: ${formatScore(player.score)}`,
-      [{ text: 'Tamam' }]
-    );
-  };
-
-  const getTabIcon = (tab: string) => {
-    switch (tab) {
-      case 'level':
-        return <TrendingUp size={16} color={activeTab === tab ? '#000' : '#666'} />;
-      case 'respect':
-        return <Star size={16} color={activeTab === tab ? '#000' : '#666'} />;
-      case 'territories':
-        return <MapPin size={16} color={activeTab === tab ? '#000' : '#666'} />;
-      default:
-        return <TrendingUp size={16} color="#666" />;
-    }
-  };
-
-  const getTabTitle = (tab: string): string => {
-    switch (tab) {
-      case 'level':
-        return 'Seviye';
-      case 'respect':
-        return 'Saygı';
-      case 'territories':
-        return 'Bölge';
-      default:
-        return '';
-    }
-  };
-
-  const getMedalColor = (position: number): string => {
-    switch (position) {
-      case 1:
-        return '#FFD700'; // Gold
-      case 2:
-        return '#C0C0C0'; // Silver
-      case 3:
-        return '#CD7F32'; // Bronze
-      default:
-        return '#666';
-    }
-  };
-
-  return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.overlay}>
-        <View style={styles.modal}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Sıralama Tablosu</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <X size={24} color="#999" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.tabContainer}>
-            {(['level', 'respect', 'territories'] as const).map(tab => (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.tabButton, activeTab === tab && styles.activeTab]}
-                onPress={() => handleTabChange(tab)}
-              >
-                {getTabIcon(tab)}
-                <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
-                  {getTabTitle(tab)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.updateInfo}>
-            <Clock size={12} color="#666" />
-            <Text style={styles.updateText}>
-              {lastUpdate ? `Son güncelleme: ${formatLastActive(lastUpdate.toISOString())}` : 'Yükleniyor...'}
-            </Text>
-            {refreshing && <ActivityIndicator size="small" color="#666" style={{ marginLeft: 5 }} />}
-          </View>
-
-          <ScrollView style={styles.leaderboardList}>
-            {loading && !refreshing ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#d4af37" />
-                <Text style={styles.loadingText}>Sıralama yükleniyor...</Text>
-              </View>
-            ) : (
-              leaderboard.map((player) => (
-                <TouchableOpacity
-                  key={player.player_id}
-                  style={[
-                    styles.playerRow,
-                    player.player_rank <= 3 && styles.topPlayerRow,
-                    playerStats && player.player_id === playerStats.id && styles.currentPlayerRow,
-                  ]}
-                  onPress={() => viewPlayerProfile(player)}
-                >
-                  <View style={styles.positionContainer}>
-                    {player.player_rank <= 3 ? (
-                      <Trophy size={24} color={getMedalColor(player.player_rank)} />
-                    ) : (
-                      <Text style={styles.position}>{player.player_rank}</Text>
-                    )}
-                  </View>
-
-                  {/* Profile Photo */}
-                  {player.profile_image ? (
-                    <Image
-                      source={{ uri: player.profile_image }}
-                      style={styles.playerAvatar}
-                    />
-                  ) : (
-                    <View style={styles.playerAvatarPlaceholder}>
-                      <Text style={styles.playerAvatarText}>
-                        {(player.player_name || 'O').charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                  )}
-
-                  <View style={styles.playerInfo}>
-                    <View style={styles.nameContainer}>
-                      <Text style={[
-                        styles.playerName,
-                        playerStats && player.player_id === playerStats.id && styles.currentPlayerName
-                      ]}>
-                        {player.player_name}
-                      </Text>
-                      {player.is_active && (
-                        <Circle size={8} color="#4caf50" fill="#4caf50" style={{ marginLeft: 5 }} />
-                      )}
-                    </View>
-
-                    <View style={styles.playerDetails}>
-                      <Text style={styles.playerRank}>
-                        {player.rank_name} - Seviye {player.player_level}
-                      </Text>
-                      {player.score_change !== 0 && (
-                        <View style={[
-                          styles.scoreChange,
-                          player.score_change > 0 ? styles.scoreIncrease : styles.scoreDecrease
-                        ]}>
-                          {player.score_change > 0 ? (
-                            <ChevronUp size={12} color="#4caf50" />
-                          ) : (
-                            <ChevronDown size={12} color="#f44336" />
-                          )}
-                          <Text style={[
-                            styles.scoreChangeText,
-                            player.score_change > 0 ? styles.scoreIncreaseText : styles.scoreDecreaseText
-                          ]}>
-                            {Math.abs(player.score_change)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-
-                  <View style={styles.scoreContainer}>
-                    <Text style={[
-                      styles.score,
-                      playerStats && player.player_id === playerStats.id && styles.currentPlayerScore
-                    ]}>
-                      {formatScore(player.score)}
-                    </Text>
-                    <Text style={styles.lastActive}>{formatLastActive(player.last_active)}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))
-            )}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              İlk 100 oyuncu gösteriliyor • Her 10 saniyede bir güncellenir
-            </Text>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}

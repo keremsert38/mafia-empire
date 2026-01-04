@@ -9,10 +9,11 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
-import { X, Send, MessageCircle, Flag, Ban, Shield } from 'lucide-react-native';
+import { X, Send, MessageCircle, Flag, Ban, Shield, User } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { filterMessage, BANNED_WORD_WARNING } from '@/utils/chatFilter';
+import PlayerProfileModal from './PlayerProfileModal';
 
 interface ChatMessage {
   id: string;
@@ -49,6 +50,7 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
   const [actionModalVisible, setActionModalVisible] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [blockedUsersModalVisible, setBlockedUsersModalVisible] = useState(false);
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [reportDescription, setReportDescription] = useState('');
 
@@ -408,6 +410,17 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
               style={styles.actionButton}
               onPress={() => {
                 setActionModalVisible(false);
+                setProfileModalVisible(true);
+              }}
+            >
+              <User size={20} color="#4ecdc4" />
+              <Text style={styles.actionButtonText}>Profili Gör</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => {
+                setActionModalVisible(false);
                 setReportModalVisible(true);
               }}
             >
@@ -522,6 +535,17 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
           </View>
         </View>
       </Modal>
+
+      {/* Player Profile Modal */}
+      <PlayerProfileModal
+        visible={profileModalVisible}
+        onClose={() => {
+          setProfileModalVisible(false);
+          setSelectedMessage(null);
+        }}
+        playerId={selectedMessage?.user_id || null}
+        playerName={selectedMessage?.username}
+      />
     </Modal>
   );
 }

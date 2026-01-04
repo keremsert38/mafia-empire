@@ -12,6 +12,8 @@ import {
 import { Search, Sword, X } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useGameService } from '@/hooks/useGameService';
+import { Clock } from 'lucide-react-native';
 
 interface Player {
     id: string;
@@ -32,12 +34,39 @@ export default function AttackModal({
     onAttack
 }: AttackModalProps) {
     const { user } = useAuth();
+    const { playerStats } = useGameService();
     const [players, setPlayers] = useState<Player[]>([]);
     const [filteredPlayers, setFilteredPlayers] = useState<Player[]>([]);
     const [searchText, setSearchText] = useState('');
     const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
     const [soldiersToSend, setSoldiersToSend] = useState('');
     const [loading, setLoading] = useState(false);
+    const [cooldownRemaining, setCooldownRemaining] = useState<string | null>(null);
+
+    useEffect(() => {
+        const checkCooldown = () => {
+            if (playerStats?.lastAttackTime) {
+                const now = new Date();
+                const lastAttack = new Date(playerStats.lastAttackTime);
+                const diff = now.getTime() - lastAttack.getTime();
+                const cooldown = 3 * 60 * 60 * 1000; // 3 saat
+
+                if (diff < cooldown) {
+                    const remaining = cooldown - diff;
+                    const hours = Math.floor(remaining / (1000 * 60 * 60));
+                    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+                    const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+                    setCooldownRemaining(`${hours}s ${minutes}dk ${seconds}sn`);
+                } else {
+                    setCooldownRemaining(null);
+                }
+            }
+        };
+
+        checkCooldown(); // İlk kontrol
+        const timer = setInterval(checkCooldown, 1000);
+        return () => clearInterval(timer);
+    }, [playerStats?.lastAttackTime]);
 
     useEffect(() => {
         if (visible) {
@@ -145,6 +174,15 @@ export default function AttackModal({
                         </TouchableOpacity>
                     </View>
 
+                    {cooldownRemaining && (
+                        <View style={styles.cooldownContainer}>
+                            <Clock size={20} color="#ffa726" />
+                            <Text style={styles.cooldownText}>
+                                Saldırı yorgunusunuz! {cooldownRemaining} sonra tekrar saldırabilirsiniz.
+                            </Text>
+                        </View>
+                    )}
+
                     <View style={styles.content}>
                         {/* Search Bar */}
                         <View style={styles.searchContainer}>
@@ -213,10 +251,10 @@ export default function AttackModal({
                                 <TouchableOpacity
                                     style={[
                                         styles.attackButton,
-                                        (loading || !soldiersToSend || parseInt(soldiersToSend) <= 0) && styles.attackButtonDisabled
+                                        (loading || !soldiersToSend || parseInt(soldiersToSend) <= 0 || !!cooldownRemaining) && styles.attackButtonDisabled
                                     ]}
                                     onPress={handleAttack}
-                                    disabled={loading || !soldiersToSend || parseInt(soldiersToSend) <= 0}
+                                    disabled={loading || !soldiersToSend || parseInt(soldiersToSend) <= 0 || !!cooldownRemaining}
                                 >
                                     <Sword size={20} color="#fff" />
                                     <Text style={styles.attackButtonText}>
@@ -431,5 +469,23 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: 'bold',
         color: '#fff',
+    },
+    cooldownContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 167, 38, 0.15)',
+        padding: 12,
+        marginHorizontal: 15,
+        marginTop: 15,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#ffa726',
+    },
+    cooldownText: {
+        color: '#ffa726',
+        marginLeft: 10,
+        fontSize: 13,
+        fontWeight: 'bold',
+        flex: 1,
     },
 });

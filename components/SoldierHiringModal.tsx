@@ -7,8 +7,10 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { PlayerStats } from '@/types/game';
+import { Users, Sword, Shield, Target } from 'lucide-react-native';
 
 interface SoldierHiringModalProps {
   visible: boolean;
@@ -27,6 +29,7 @@ interface SoldierHiringModalProps {
     secondsUntilNext: number;
     productionStartTime: Date | null;
   }>;
+  onInstantFinish: () => Promise<{ success: boolean; message: string; soldiersAdded: number; cost: number }>;
 }
 
 export default function SoldierHiringModal({
@@ -35,10 +38,13 @@ export default function SoldierHiringModal({
   playerStats,
   onOrderSoldiers,
   onCheckProduction,
-  onGetProductionStatus
+  onGetProductionStatus,
+  onInstantFinish
 }: SoldierHiringModalProps) {
+  const [activeTab, setActiveTab] = useState<'hire' | 'power'>('hire');
   const [selectedCount, setSelectedCount] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [finishing, setFinishing] = useState(false);
   const [productionStatus, setProductionStatus] = useState({
     soldiersInProduction: 0,
     secondsUntilNext: 0,
@@ -52,18 +58,41 @@ export default function SoldierHiringModal({
     return Math.floor(baseCost * count * levelMultiplier);
   };
 
-  const maxSoldiers = playerStats.level * 5;
-  const availableSlots = maxSoldiers - playerStats.soldiers - productionStatus.soldiersInProduction;
+  // Level sınırı kaldırıldı - para yettiği kadar sipariş verilebilir
   const maxAffordable = Math.floor(playerStats.cash / getSoldierCost(1));
-  const maxCanOrder = Math.min(availableSlots, maxAffordable, 50);
+  const maxCanOrder = Math.min(maxAffordable, 500); // Max 500 tek seferde
+
+  // Power Calculations
+  const getPowerStats = () => {
+    const soldiers = playerStats.soldiers;
+    const basePowerPerSoldier = 5;
+    const baseTotal = soldiers * basePowerPerSoldier;
+
+    // Inventory check
+    // Inventory check
+    // Updated to use new playerStats.weapon column
+    const weaponCount = playerStats.weapon || 0;
+
+    const armedSoldiers = Math.min(soldiers, weaponCount);
+    // +1 bonus power per armed soldier
+    const weaponBonus = armedSoldiers * 1;
+
+    return {
+      soldiers,
+      weaponCount,
+      armedSoldiers,
+      baseTotal,
+      weaponBonus,
+      totalPower: baseTotal + weaponBonus
+    };
+  };
+
+  const powerStats = getPowerStats();
 
   // Üretim durumunu yükle
   const loadProductionStatus = useCallback(async () => {
     try {
-      // Önce tamamlananları kontrol et
       await onCheckProduction();
-
-      // Sonra mevcut durumu al
       const status = await onGetProductionStatus();
       setProductionStatus({
         soldiersInProduction: status.soldiersInProduction,
@@ -74,16 +103,12 @@ export default function SoldierHiringModal({
     }
   }, [onCheckProduction, onGetProductionStatus]);
 
-  // Sayaç güncellemesi
   useEffect(() => {
     if (!visible) return;
-
     loadProductionStatus();
-
     const interval = setInterval(() => {
       setProductionStatus(prev => {
         if (prev.secondsUntilNext <= 1 && prev.soldiersInProduction > 0) {
-          // Bir soldato tamamlandı, durumu yeniden yükle
           loadProductionStatus();
           return prev;
         }
@@ -93,11 +118,9 @@ export default function SoldierHiringModal({
         };
       });
     }, 1000);
-
     return () => clearInterval(interval);
   }, [visible, loadProductionStatus]);
 
-  // Zaman gösterimi formatla
   useEffect(() => {
     if (productionStatus.soldiersInProduction > 0) {
       const totalSeconds = productionStatus.secondsUntilNext + (productionStatus.soldiersInProduction - 1) * 100;
@@ -110,49 +133,25 @@ export default function SoldierHiringModal({
   }, [productionStatus]);
 
   const handleOrder = async () => {
-    if (selectedCount <= 0) {
-      Alert.alert('Hata', 'Geçerli bir sayı seçin!');
-      return;
-    }
-
-    const cost = getSoldierCost(selectedCount);
-    if (playerStats.cash < cost) {
-      Alert.alert('Yetersiz Para', `${selectedCount} soldato için $${cost.toLocaleString()} gerekli!`);
-      return;
-    }
-
-    if (selectedCount > availableSlots) {
-      Alert.alert('Yetersiz Slot', `Maksimum ${availableSlots} soldato sipariş edebilirsiniz!`);
-      return;
-    }
-
-    const productionTime = selectedCount * 100;
-    const productionMinutes = Math.floor(productionTime / 60);
-    const productionSeconds = productionTime % 60;
+    if (selectedCount <= 0 || playerStats.cash < getSoldierCost(selectedCount)) return;
 
     Alert.alert(
-      'Soldato Siparişi',
-      `${selectedCount} soldato için $${cost.toLocaleString()} ödeyeceksiniz.\n\n⏱️ Üretim Süresi: ${productionMinutes}:${productionSeconds.toString().padStart(2, '0')}\n\nOnaylıyor musunuz?`,
+      'Sipariş Onayı',
+      `${selectedCount} soldato sipariş edilsin mi? ($${getSoldierCost(selectedCount).toLocaleString()})`,
       [
         { text: 'İptal', style: 'cancel' },
         {
           text: 'Sipariş Ver',
           onPress: async () => {
             setLoading(true);
-            try {
-              const result = await onOrderSoldiers(selectedCount);
-              Alert.alert(
-                result.success ? '✅ Başarılı' : '❌ Hata',
-                result.message
-              );
-              if (result.success) {
-                await loadProductionStatus();
-                setSelectedCount(1);
-              }
-            } catch (error) {
-              Alert.alert('Hata', 'Sipariş verilemedi!');
-            } finally {
-              setLoading(false);
+            const result = await onOrderSoldiers(selectedCount);
+            setLoading(false);
+            if (result.success) {
+              Alert.alert('Başarılı', result.message);
+              loadProductionStatus();
+              setSelectedCount(1);
+            } else {
+              Alert.alert('Hata', result.message);
             }
           }
         }
@@ -160,14 +159,37 @@ export default function SoldierHiringModal({
     );
   };
 
-  const adjustCount = (change: number) => {
-    const newCount = selectedCount + change;
-    if (newCount >= 1 && newCount <= maxCanOrder) {
-      setSelectedCount(newCount);
-    }
-  };
+  const presetCounts = [1, 10, 25, 50, 100, 200].filter(count => count <= maxCanOrder);
 
-  const presetCounts = [1, 5, 10, 25].filter(count => count <= maxCanOrder);
+  const handleInstantFinish = async () => {
+    const cost = productionStatus.soldiersInProduction;
+    if ((playerStats.mtCoins || 0) < cost) {
+      Alert.alert('Yetersiz Elmas', `Bu işlem için ${cost} Elmas gerekli.`);
+      return;
+    }
+
+    Alert.alert(
+      'Hemen Bitir',
+      `${productionStatus.soldiersInProduction} askerin eğitimini ${cost} Elmas karşılığında hemen bitirmek istiyor musun?`,
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Bitir (-' + cost + ' 💎)',
+          onPress: async () => {
+            setFinishing(true);
+            const result = await onInstantFinish();
+            setFinishing(false);
+            if (result.success) {
+              Alert.alert('Başarılı', result.message);
+              loadProductionStatus();
+            } else {
+              Alert.alert('Hata', result.message);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -175,184 +197,158 @@ export default function SoldierHiringModal({
         <View style={styles.modal}>
           <View style={styles.header}>
             <View style={styles.headerContent}>
-              <Text style={styles.playerName}>{playerStats.name}</Text>
-              <Text style={styles.title}>Soldato Üretimi</Text>
+              <Text style={styles.title}>Ordu Yönetimi</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <TouchableOpacity onPress={onClose}>
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.content}>
-            {/* Üretim Durumu */}
-            {productionStatus.soldiersInProduction > 0 && (
-              <View style={styles.productionCard}>
-                <View style={styles.productionHeader}>
-                  <Text style={styles.productionTitle}>🏭 Üretimde</Text>
-                  <ActivityIndicator size="small" color="#d4af37" />
-                </View>
-                <View style={styles.productionInfo}>
-                  <View style={styles.productionRow}>
-                    <Text style={styles.productionLabel}>Soldato:</Text>
-                    <Text style={styles.productionValue}>{productionStatus.soldiersInProduction}</Text>
-                  </View>
-                  <View style={styles.productionRow}>
-                    <Text style={styles.productionLabel}>Sonraki için:</Text>
-                    <Text style={styles.productionTimer}>
-                      {Math.floor(productionStatus.secondsUntilNext / 60)}:{(productionStatus.secondsUntilNext % 60).toString().padStart(2, '0')}
-                    </Text>
-                  </View>
-                  <View style={styles.productionRow}>
-                    <Text style={styles.productionLabel}>Toplam Kalan:</Text>
-                    <Text style={styles.productionValue}>{timeDisplay}</Text>
-                  </View>
-                </View>
-                <View style={styles.productionProgress}>
-                  <View
-                    style={[
-                      styles.productionProgressBar,
-                      { width: `${((100 - productionStatus.secondsUntilNext) / 100) * 100}%` }
-                    ]}
-                  />
-                </View>
-              </View>
-            )}
+          {/* Tabs */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tabButton, activeTab === 'hire' && styles.activeTab]}
+              onPress={() => setActiveTab('hire')}
+            >
+              <Users size={16} color={activeTab === 'hire' ? '#000' : '#666'} />
+              <Text style={[styles.tabText, activeTab === 'hire' && styles.activeTabText]}>Soldato Al</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tabButton, activeTab === 'power' && styles.activeTab]}
+              onPress={() => setActiveTab('power')}
+            >
+              <Sword size={16} color={activeTab === 'power' ? '#000' : '#666'} />
+              <Text style={[styles.tabText, activeTab === 'power' && styles.activeTabText]}>Ordu Gücü</Text>
+            </TouchableOpacity>
+          </View>
 
-            {/* Mevcut Durum */}
-            <View style={styles.statusCard}>
-              <Text style={styles.statusTitle}>Mevcut Durum</Text>
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>Para:</Text>
-                <Text style={styles.statusValue}>${playerStats.cash.toLocaleString()}</Text>
-              </View>
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>Soldato:</Text>
-                <Text style={styles.statusValue}>{playerStats.soldiers}/{maxSoldiers}</Text>
-              </View>
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>Üretimde:</Text>
-                <Text style={[styles.statusValue, { color: '#ffa726' }]}>
-                  {productionStatus.soldiersInProduction}
-                </Text>
-              </View>
-              <View style={styles.statusRow}>
-                <Text style={styles.statusLabel}>Boş Slot:</Text>
-                <Text style={styles.statusValue}>{availableSlots}</Text>
-              </View>
-            </View>
-
-            {maxCanOrder > 0 ? (
+          <ScrollView style={styles.content}>
+            {activeTab === 'hire' ? (
               <>
-                {/* Sayı Seçici */}
-                <View style={styles.counterSection}>
-                  <Text style={styles.sectionTitle}>Kaç Soldato Sipariş?</Text>
-                  <View style={styles.counter}>
-                    <TouchableOpacity
-                      style={styles.counterButton}
-                      onPress={() => adjustCount(-1)}
-                      disabled={selectedCount <= 1}
-                    >
-                      <Text style={styles.iconText}>−</Text>
-                    </TouchableOpacity>
-
-                    <Text style={styles.counterValue}>{selectedCount}</Text>
-
-                    <TouchableOpacity
-                      style={styles.counterButton}
-                      onPress={() => adjustCount(1)}
-                      disabled={selectedCount >= maxCanOrder}
-                    >
-                      <Text style={styles.iconText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Hızlı Seçim */}
-                <View style={styles.presetSection}>
-                  <Text style={styles.sectionTitle}>Hızlı Seçim</Text>
-                  <View style={styles.presetButtons}>
-                    {presetCounts.map(count => (
+                {/* Production Status */}
+                {productionStatus.soldiersInProduction > 0 && (
+                  <View style={styles.productionCard}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <View>
+                        <Text style={styles.productionTitle}>🏭 Üretim Devam Ediyor</Text>
+                        <Text style={styles.productionTimer}>Kalan: {productionStatus.soldiersInProduction} asker ({timeDisplay})</Text>
+                      </View>
                       <TouchableOpacity
-                        key={count}
-                        style={[
-                          styles.presetButton,
-                          selectedCount === count && styles.presetButtonActive
-                        ]}
-                        onPress={() => setSelectedCount(count)}
+                        style={[styles.instantFinishBtn, finishing && { opacity: 0.7 }]}
+                        onPress={handleInstantFinish}
+                        disabled={finishing}
                       >
-                        <Text style={[
-                          styles.presetButtonText,
-                          selectedCount === count && styles.presetButtonTextActive
-                        ]}>
-                          {count}
-                        </Text>
+                        <Text style={styles.instantFinishText}>💎 HIZLANDIR</Text>
                       </TouchableOpacity>
-                    ))}
+                    </View>
+                    <View style={styles.progressBarBg}>
+                      <View style={[styles.progressBarFill, { width: `${((100 - productionStatus.secondsUntilNext) / 100) * 100}%` }]} />
+                    </View>
+                    <Text style={styles.costHint}>1 Asker = 1 Elmas</Text>
                   </View>
+                )}
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Mevcut Soldato:</Text>
+                  <Text style={styles.infoValue}>{playerStats.soldiers.toLocaleString()}</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Max Sipariş (Bu işlem):</Text>
+                  <Text style={styles.infoValue}>{maxCanOrder.toLocaleString()}</Text>
                 </View>
 
-                {/* Maliyet ve Süre */}
-                <View style={styles.costCard}>
-                  <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>Toplam Maliyet:</Text>
-                    <Text style={styles.costValue}>
-                      ${getSoldierCost(selectedCount).toLocaleString()}
-                    </Text>
-                  </View>
-                  <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>Üretim Süresi:</Text>
-                    <Text style={[styles.costValue, { color: '#66bb6a' }]}>
-                      {Math.floor(selectedCount * 100 / 60)}:{((selectedCount * 100) % 60).toString().padStart(2, '0')}
-                    </Text>
-                  </View>
-                  <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>Kalan Para:</Text>
-                    <Text style={[
-                      styles.costValue,
-                      { color: playerStats.cash - getSoldierCost(selectedCount) >= 0 ? '#66bb6a' : '#ff6b6b' }
-                    ]}>
-                      ${(playerStats.cash - getSoldierCost(selectedCount)).toLocaleString()}
-                    </Text>
-                  </View>
-                </View>
+                {maxCanOrder > 0 ? (
+                  <>
+                    <View style={styles.counterContainer}>
+                      <TouchableOpacity
+                        style={styles.counterBtn}
+                        onPress={() => setSelectedCount(Math.max(1, selectedCount - 1))}
+                      >
+                        <Text style={styles.counterBtnText}>-</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.counterValue}>{selectedCount}</Text>
+                      <TouchableOpacity
+                        style={styles.counterBtn}
+                        onPress={() => setSelectedCount(Math.min(maxCanOrder, selectedCount + 1))}
+                      >
+                        <Text style={styles.counterBtnText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
 
-                {/* Sipariş Butonu */}
-                <TouchableOpacity
-                  style={[
-                    styles.hireButton,
-                    (playerStats.cash < getSoldierCost(selectedCount) || loading) && styles.hireButtonDisabled
-                  ]}
-                  onPress={handleOrder}
-                  disabled={playerStats.cash < getSoldierCost(selectedCount) || loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator size="small" color="#000" />
-                  ) : (
-                    <>
-                      <Text style={styles.iconText}>🏭</Text>
-                      <Text style={styles.hireButtonText}>
-                        {selectedCount} Soldato Sipariş Ver
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+                    <View style={styles.presets}>
+                      {presetCounts.map(n => (
+                        <TouchableOpacity
+                          key={n}
+                          style={[styles.presetBtn, selectedCount === n && styles.presetBtnActive]}
+                          onPress={() => setSelectedCount(n)}
+                        >
+                          <Text style={[styles.presetText, selectedCount === n && styles.presetTextActive]}>{n}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
 
-                <Text style={styles.infoText}>
-                  ⏱️ Her soldato 100 saniye üretilir. Uygulama kapalıyken de üretim devam eder.
-                </Text>
+                    <Text style={styles.costText}>Maliyet: ${getSoldierCost(selectedCount).toLocaleString()}</Text>
+
+                    <TouchableOpacity
+                      style={styles.orderButton}
+                      onPress={handleOrder}
+                      disabled={loading}
+                    >
+                      {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.orderButtonText}>Sipariş Ver</Text>}
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <Text style={styles.warningText}>
+                    Yetersiz bakiye.
+                  </Text>
+                )}
               </>
             ) : (
-              <View style={styles.noSlotsCard}>
-                <Text style={styles.noSlotsTitle}>Soldato Sipariş Edilemiyor</Text>
-                <Text style={styles.noSlotsText}>
-                  {availableSlots === 0
-                    ? 'Soldato slotunuz dolu veya tüm slotlar üretimde. Seviye atlayarak daha fazla slot kazanın.'
-                    : 'Yeterli paranız yok. Daha fazla para kazanın.'
-                  }
-                </Text>
+              // POWER TAB
+              <View style={styles.powerContainer}>
+                <View style={styles.totalPowerCard}>
+                  <Sword size={32} color="#ff6b6b" />
+                  <Text style={styles.totalPowerLabel}>Toplam Ordu Gücü</Text>
+                  <Text style={styles.totalPowerValue}>{powerStats.totalPower}</Text>
+                </View>
+
+                <View style={styles.breakdownCard}>
+                  <Text style={styles.breakdownTitle}>Güç Detayları</Text>
+
+                  <View style={styles.breakdownRow}>
+                    <View style={styles.breakdownLabelGroup}>
+                      <Users size={16} color="#4ecdc4" />
+                      <Text style={styles.breakdownLabel}>Asker Taban Güç ({powerStats.soldiers} x 5)</Text>
+                    </View>
+                    <Text style={styles.breakdownValue}>{powerStats.baseTotal}</Text>
+                  </View>
+
+                  <View style={styles.breakdownRow}>
+                    <View style={styles.breakdownLabelGroup}>
+                      <Target size={16} color="#ffa726" />
+                      <Text style={styles.breakdownLabel}>Silah Bonusu (+1 Güç)</Text>
+                    </View>
+                    <Text style={[styles.breakdownValue, { color: '#66bb6a' }]}>+{powerStats.weaponBonus}</Text>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  <View style={styles.breakdownRow}>
+                    <Text style={styles.breakdownInfo}>
+                      {powerStats.armedSoldiers} asker silahlı, {Math.max(0, powerStats.soldiers - powerStats.armedSoldiers)} asker silahsız.
+                    </Text>
+                  </View>
+
+                  <View style={styles.tipBox}>
+                    <Shield size={14} color="#aaa" />
+                    <Text style={styles.tipText}>
+                      Marketten "Baretta 9mm" alarak askerlerinin gücünü artırabilirsin. Her silah bir askeri güçlendirir.
+                    </Text>
+                  </View>
+                </View>
               </View>
             )}
-          </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -362,251 +358,125 @@ export default function SoldierHiringModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modal: {
     backgroundColor: '#1a1a1a',
+    width: '90%',
+    maxHeight: '80%',
     borderRadius: 15,
-    width: '95%',
-    maxHeight: '90%',
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#d4af37',
-    marginTop: 60,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
     padding: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#333',
   },
-  headerContent: {
+  headerContent: { justifyContent: 'center' },
+  title: { fontSize: 18, fontWeight: 'bold', color: '#d4af37' },
+  closeButtonText: { fontSize: 24, color: '#999', fontWeight: 'bold' },
+  tabContainer: {
+    flexDirection: 'row',
+    padding: 10,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  tabButton: {
     flex: 1,
-  },
-  playerName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#d4af37',
-    marginBottom: 4,
-  },
-  title: {
-    fontSize: 14,
-    color: '#fff',
-  },
-  closeButton: {
-    padding: 5,
-  },
-  closeButtonText: {
-    fontSize: 24,
-    color: '#999',
-    fontWeight: 'bold',
-  },
-  iconText: {
-    fontSize: 20,
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  content: {
-    padding: 20,
-  },
-  productionCard: {
-    backgroundColor: '#2a3a2a',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#4a6a4a',
-  },
-  productionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  productionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#66bb6a',
-  },
-  productionInfo: {
-    marginBottom: 10,
-  },
-  productionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 5,
-  },
-  productionLabel: {
-    color: '#aaa',
-    fontSize: 14,
-  },
-  productionValue: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  productionTimer: {
-    color: '#ffa726',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  productionProgress: {
-    height: 6,
-    backgroundColor: '#333',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  productionProgressBar: {
-    height: '100%',
-    backgroundColor: '#66bb6a',
-  },
-  statusCard: {
-    backgroundColor: '#2a2a2a',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
-  },
-  statusTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#d4af37',
-    marginBottom: 10,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 5,
-  },
-  statusLabel: {
-    color: '#999',
-    fontSize: 14,
-  },
-  statusValue: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  counterSection: {
-    marginBottom: 15,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#d4af37',
-    marginBottom: 10,
-  },
-  counter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 10,
+    borderRadius: 8,
     backgroundColor: '#2a2a2a',
+    gap: 6
+  },
+  activeTab: { backgroundColor: '#d4af37' },
+  tabText: { color: '#666', fontWeight: 'bold' },
+  activeTabText: { color: '#000' },
+  content: { padding: 20 },
+  productionCard: {
+    backgroundColor: '#252525',
+    padding: 15,
     borderRadius: 10,
-    padding: 10,
-  },
-  counterButton: {
-    backgroundColor: '#333',
-    padding: 10,
-    borderRadius: 8,
-  },
-  counterValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginHorizontal: 30,
-    minWidth: 50,
-    textAlign: 'center',
-  },
-  presetSection: {
-    marginBottom: 15,
-  },
-  presetButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  presetButton: {
-    backgroundColor: '#2a2a2a',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: '#333',
   },
-  presetButtonActive: {
-    backgroundColor: '#d4af37',
-    borderColor: '#d4af37',
-  },
-  presetButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  presetButtonTextActive: {
-    color: '#000',
-  },
-  costCard: {
-    backgroundColor: '#2a2a2a',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 15,
-  },
-  costRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 5,
-  },
-  costLabel: {
-    color: '#999',
-    fontSize: 14,
-  },
-  costValue: {
-    color: '#d4af37',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  hireButton: {
-    backgroundColor: '#d4af37',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  hireButtonDisabled: {
-    backgroundColor: '#666',
-    opacity: 0.6,
-  },
-  hireButtonText: {
-    color: '#000',
-    fontWeight: 'bold',
-    marginLeft: 8,
-    fontSize: 16,
-  },
-  infoText: {
-    color: '#888',
-    fontSize: 12,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  noSlotsCard: {
+  productionTitle: { color: '#ffa726', fontWeight: 'bold', marginBottom: 5 },
+  productionTimer: { color: '#fff', marginBottom: 10 },
+  progressBarBg: { height: 6, backgroundColor: '#333', borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#ffa726' },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  infoLabel: { color: '#999' },
+  infoValue: { color: '#fff', fontWeight: 'bold' },
+  counterContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginVertical: 20, gap: 20 },
+  counterBtn: { backgroundColor: '#333', width: 40, height: 40, justifyContent: 'center', alignItems: 'center', borderRadius: 20 },
+  counterBtnText: { color: '#fff', fontSize: 24, fontWeight: 'bold' },
+  counterValue: { color: '#d4af37', fontSize: 24, fontWeight: 'bold' },
+  presets: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  presetBtn: { backgroundColor: '#2a2a2a', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#333' },
+  presetBtnActive: { backgroundColor: '#d4af37', borderColor: '#d4af37' },
+  presetText: { color: '#fff' },
+  presetTextActive: { color: '#000', fontWeight: 'bold' },
+  costText: { color: '#fff', textAlign: 'center', marginBottom: 20, fontSize: 16 },
+  orderButton: { backgroundColor: '#d4af37', padding: 15, borderRadius: 10, alignItems: 'center' },
+  orderButtonText: { fontWeight: 'bold', color: '#000', fontSize: 16 },
+  warningText: { color: '#ff6b6b', textAlign: 'center', marginTop: 20 },
+
+  // Power Tab Styles
+  powerContainer: { gap: 15 },
+  totalPowerCard: {
     backgroundColor: '#2a1a1a',
-    borderRadius: 10,
     padding: 20,
+    borderRadius: 15,
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#ff6b6b'
+  },
+  totalPowerLabel: { color: '#ff6b6b', marginTop: 10, fontSize: 14 },
+  totalPowerValue: { color: '#fff', fontSize: 32, fontWeight: 'bold', marginTop: 5 },
+  breakdownCard: { backgroundColor: '#252525', padding: 15, borderRadius: 10 },
+  breakdownTitle: { color: '#d4af37', fontWeight: 'bold', marginBottom: 15 },
+  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  breakdownLabelGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  breakdownLabel: { color: '#ccc', fontSize: 14 },
+  breakdownValue: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+  divider: { height: 1, backgroundColor: '#333', marginVertical: 10 },
+  breakdownInfo: { color: '#999', fontSize: 12, fontStyle: 'italic' },
+  tipBox: {
+    flexDirection: 'row',
+    backgroundColor: '#2a2a2a',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 10,
+    gap: 8,
+    alignItems: 'center'
+  },
+  tipText: { color: '#888', fontSize: 11, flex: 1 },
+  instantFinishBtn: {
+    backgroundColor: '#9c27b0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#ff6b6b',
+    borderColor: '#ba68c8',
   },
-  noSlotsTitle: {
-    fontSize: 18,
+  instantFinishText: {
+    color: '#fff',
+    fontSize: 12,
     fontWeight: 'bold',
-    color: '#ff6b6b',
-    marginBottom: 10,
   },
-  noSlotsText: {
-    color: '#ccc',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
+  costHint: {
+    color: '#666',
+    fontSize: 10,
+    marginTop: 6,
+    textAlign: 'right',
+  }
 });

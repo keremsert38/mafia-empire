@@ -24,17 +24,29 @@ import {
 } from 'lucide-react-native';
 import { useGameService } from '@/hooks/useGameService';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useTutorial } from '@/contexts/TutorialContext';
 
 export default function BusinessesScreen() {
   const { gameService, playerStats, businesses } = useGameService();
   const { t } = useLanguage();
+  const { checkStepCompletion, currentStep } = useTutorial();
   const [selectedBusiness, setSelectedBusiness] = useState<string | null>(null);
   const [showBuildModal, setShowBuildModal] = useState(false);
+
+  // Tutorial: Eğer zaten işletmesi varsa işletme adımını tamamla
+  React.useEffect(() => {
+    const ownedCount = businesses.filter(b => b.level > 0).length;
+    if (currentStep === 4 && ownedCount > 0) {
+      checkStepCompletion('business');
+    }
+  }, [currentStep, businesses]);
 
   const buildBusiness = async (businessId: string) => {
     const result = await gameService.buildBusiness(businessId);
     Alert.alert(result.success ? 'Başarılı' : 'Hata', result.message);
     if (result.success) {
+      // Tutorial: İşletme aç adımı tamamlandı
+      checkStepCompletion('business');
       setShowBuildModal(false);
     }
   };
@@ -44,15 +56,7 @@ export default function BusinessesScreen() {
     Alert.alert(result.success ? 'Başarılı' : 'Hata', result.message);
   };
 
-  const collectIncome = async (businessId: string) => {
-    const result = await gameService.collectBusinessIncome(businessId);
-    Alert.alert(result.success ? t.businesses.collectIncome : t.common.error, result.message);
-  };
 
-  const collectAllIncome = async () => {
-    const result = await gameService.collectAllBusinessIncome();
-    Alert.alert(result.success ? t.businesses.collectAll : t.common.error, result.message);
-  };
 
   const finishBuildingWithMT = async (businessId: string) => {
     const result = await gameService.finishBuildingWithMT(businessId);
@@ -113,7 +117,7 @@ export default function BusinessesScreen() {
   const ownedBusinesses = businesses.filter(b => b.level > 0);
   const availableBusinesses = businesses.filter(b => b.level === 0); // Seviye kontrolü kaldırıldı - tüm işletmeler gösteriliyor
   const totalIncome = ownedBusinesses.reduce((sum, b) => sum + b.currentIncome, 0);
-  
+
   // İnşaat ve geliştirme durumlarını hesapla
   const buildingBusinesses = ownedBusinesses.filter(b => b.isBuilding);
   const upgradingBusinesses = ownedBusinesses.filter(b => b.isUpgrading);
@@ -124,12 +128,12 @@ export default function BusinessesScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>{t.businesses.title}</Text>
         <View style={styles.statsRow}>
-        <View style={styles.statCard}>
+          <View style={styles.statCard}>
             <Building2 size={20} color="#d4af37" />
             <Text style={styles.statText}>{t.businesses.business}: {ownedBusinesses.length}</Text>
-        </View>
-        <View style={styles.statCard}>
-          <DollarSign size={20} color="#66bb6a" />
+          </View>
+          <View style={styles.statCard}>
+            <DollarSign size={20} color="#66bb6a" />
             <Text style={styles.statText}>{t.businesses.income}: ${totalIncome.toLocaleString()}/h</Text>
           </View>
           <View style={styles.statCard}>
@@ -137,7 +141,7 @@ export default function BusinessesScreen() {
             <Text style={styles.statText}>{t.businesses.level}: {playerStats.level}</Text>
           </View>
         </View>
-        
+
         {/* Durum Bilgileri */}
         {(buildingBusinesses.length > 0 || upgradingBusinesses.length > 0) && (
           <View style={styles.statusRow}>
@@ -170,18 +174,18 @@ export default function BusinessesScreen() {
           {ownedBusinesses.map(business => {
             const status = getBusinessStatus(business);
             return (
-        <View key={business.id} style={styles.businessCard}>
-          <View style={styles.businessHeader}>
-            <View style={styles.businessInfo}>
-              <Text style={styles.businessName}>{business.name}</Text>
+              <View key={business.id} style={styles.businessCard}>
+                <View style={styles.businessHeader}>
+                  <View style={styles.businessInfo}>
+                    <Text style={styles.businessName}>{business.name}</Text>
                     <Text style={styles.businessCategory}>{business.category}</Text>
                     <View style={styles.businessStats}>
                       <View style={styles.statItem}>
                         {getStatusIcon(status)}
                         <Text style={[styles.statusText, { color: getRiskColor(business.riskLevel) }]}>
                           {getStatusText(status)}
-                  </Text>
-                </View>
+                        </Text>
+                      </View>
                       <View style={styles.statItem}>
                         <Star size={16} color="#d4af37" />
                         <Text style={styles.statValue}>{t.businesses.level} {business.level}</Text>
@@ -200,27 +204,27 @@ export default function BusinessesScreen() {
                       <Clock size={16} color="#ffa726" />
                       <Text style={styles.progressText}>{t.businesses.buildingInProgress}</Text>
                     </View>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.mtButton}
                       onPress={() => finishBuildingWithMT(business.id)}
                     >
                       <Zap size={16} color="#fff" />
                       <Text style={styles.mtButtonText}>{t.businesses.speedUpBuilding}</Text>
                     </TouchableOpacity>
-                </View>
-              )}
+                  </View>
+                )}
 
                 {business.isUpgrading && (
                   <View style={styles.progressSection}>
                     <View style={styles.progressHeader}>
                       <TrendingUp size={16} color="#4ecdc4" />
                       <Text style={styles.progressText}>{t.businesses.upgradingInProgress}</Text>
-          </View>
-              <TouchableOpacity
-                style={styles.mtButton}
+                    </View>
+                    <TouchableOpacity
+                      style={styles.mtButton}
                       onPress={() => finishUpgradeWithMT(business.id)}
-              >
-                <Zap size={16} color="#fff" />
+                    >
+                      <Zap size={16} color="#fff" />
                       <Text style={styles.mtButtonText}>{t.businesses.speedUpUpgrade}</Text>
                     </TouchableOpacity>
                   </View>
@@ -255,17 +259,11 @@ export default function BusinessesScreen() {
                     </View>
 
                     <View style={styles.actionButtons}>
-                      <TouchableOpacity 
-                        style={[styles.actionButton, styles.collectButton]}
-                        onPress={() => collectIncome(business.id)}
-                      >
-                        <DollarSign size={16} color="#fff" />
-                        <Text style={styles.buttonText}>{t.businesses.collectIncome}</Text>
-                      </TouchableOpacity>
+
                       {business.level < business.maxLevel && business.upgradeCost && (
                         <TouchableOpacity
-                          style={[styles.actionButton, styles.upgradeButton, 
-                            playerStats.cash < (business.upgradeCost || 0) && styles.disabledButton]}
+                          style={[styles.actionButton, styles.upgradeButton,
+                          playerStats.cash < (business.upgradeCost || 0) && styles.disabledButton]}
                           onPress={() => upgradeBusiness(business.id)}
                           disabled={playerStats.cash < (business.upgradeCost || 0)}
                         >
@@ -316,20 +314,20 @@ export default function BusinessesScreen() {
                       <Shield size={14} color={getRiskColor(business.riskLevel)} />
                       <Text style={styles.availableStatText}>{business.riskLevel}</Text>
                     </View>
-        </View>
-      </View>
-                <TouchableOpacity 
-                  style={[styles.buildButton, { 
-                    backgroundColor: playerStats.cash >= business.buildCost ? '#66bb6a' : '#999' 
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.buildButton, {
+                    backgroundColor: playerStats.cash >= business.buildCost ? '#66bb6a' : '#999'
                   }]}
                   onPress={() => buildBusiness(business.id)}
                   disabled={playerStats.cash < business.buildCost}
                 >
                   <Text style={styles.buildButtonText}>
                     ${business.buildCost.toLocaleString()}
-      </Text>
-            </TouchableOpacity>
-          </View>
+                  </Text>
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
         ) : (
@@ -341,18 +339,7 @@ export default function BusinessesScreen() {
         )}
       </View>
 
-      {/* Tüm Gelirleri Topla */}
-      {ownedBusinesses.length > 0 && (
-        <View style={styles.collectAllSection}>
-          <TouchableOpacity 
-            style={styles.collectAllButton}
-            onPress={collectAllIncome}
-          >
-            <DollarSign size={20} color="#fff" />
-            <Text style={styles.collectAllButtonText}>Tüm Gelirleri Topla</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+
     </ScrollView>
   );
 }

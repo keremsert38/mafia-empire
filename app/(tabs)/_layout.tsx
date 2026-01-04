@@ -28,6 +28,7 @@ export default function TabLayout() {
         ),
         tabBarLabelStyle: { fontWeight: '600' },
       }}
+      sceneContainerStyle={{ backgroundColor: '#000000' }}
       tabBar={(props) => (
         <View>
           {/* XP Bar */}
@@ -83,7 +84,7 @@ export default function TabLayout() {
           ),
         }}
       />
-            <Tabs.Screen
+      <Tabs.Screen
         name="settings"
         options={{
           title: t.settings.title,

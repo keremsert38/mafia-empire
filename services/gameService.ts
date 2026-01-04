@@ -1,6 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { PlayerStats, Business, Territory, Mission, FamilyMember, ChatMessage, GameEvent, Leaderboard, Crime, Caporegime } from '@/types/game';
 
 class GameService {
@@ -49,6 +52,9 @@ class GameService {
 
       // İşletme durumlarını kontrol et
       await this.checkBusinessStatuses();
+
+      // Push Notification Registration (Fire and forget)
+      this.registerPushForUser(userId).catch(e => console.log('Push reg failed', e));
     } catch (error) {
       console.error('❌ Error loading player stats:', error);
       // Hata durumunda default stats kullan
@@ -57,6 +63,36 @@ class GameService {
       this.playerStats.name = username;
       // İlk kez kaydet
       await this.savePlayerStatsToSupabase();
+    }
+  }
+
+  // Push Notification Registration
+  private async registerPushForUser(userId: string) {
+    if (!Device.isDevice) {
+      console.log('⚠️ Not a physical device - Push Notifications disabled');
+      return;
+    }
+    try {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') {
+        console.log('❌ Push notification permission denied');
+        return;
+      }
+
+      const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
+      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+      const token = tokenData.data;
+      console.log('📲 Push Token obtained:', token);
+
+      const { error } = await supabase.from('player_stats').update({ expo_push_token: token }).eq('id', userId);
+      if (error) console.error('❌ Error saving push token:', error);
+    } catch (error) {
+      console.log('❌ Push registration error:', error);
     }
   }
 
@@ -120,6 +156,10 @@ class GameService {
         passiveIncome: 0,
         lastIncomeCollection: new Date(),
         mtCoins: data.mt_coins || 0,
+        cola: data.cola || 0,
+        water: data.water || 0,
+        apple: data.apple || 0,
+        weapon: data.weapon || 0,
       };
       console.log('✅ Player stats converted:', this.playerStats);
     }
@@ -358,7 +398,7 @@ class GameService {
     console.log('🔄 Loading regions from Supabase...');
 
     const [regionsRes, stateRes] = await Promise.all([
-      supabase.from('regions').select('id,name,description,base_income_per_min'),
+      supabase.from('regions').select('id,name,description,base_income_per_min,country_id'),
       supabase.from('region_state').select(`
         region_id,
         owner_user_id,
@@ -420,7 +460,10 @@ class GameService {
       return {
         id: r.id as string,
         name: r.name as string,
-        owner: ownerName,
+        countryId: r.country_id as string,
+        countryName: '', // Opsiyonel, UI ülke id'den alıyor
+        owner: st.owner_user_id || '',
+        ownerName: ownerName,
         income: Number(r.base_income_per_min) * 60, // app UI saatlik gösteriyor
         defense: st.defender_soldiers,
         soldiers: st.defender_soldiers,
@@ -429,6 +472,143 @@ class GameService {
     });
 
     console.log('✅ Loaded territories:', this.territories);
+  }
+
+  // Market Listings
+  async getMarketListings(): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('market_listings')
+      .select('*, item:items(*)')
+      .gt('quantity', 0)
+      .order('price', { ascending: true });
+
+    if (error) {
+      console.error('❌ Market listings error:', error);
+      return [];
+    }
+
+    // Map to UI format
+    return (data || []).map(row => ({
+      id: row.id,
+      itemId: row.item_id,
+      sellerId: row.seller_id,
+      price: row.price,
+      quantity: row.quantity,
+      isSystem: row.is_system,
+      itemName: row.item?.name,
+      itemType: row.item?.type,
+      itemEffectType: row.item?.effect_type,
+      itemEffectValue: row.item?.effect_value,
+      itemImageUrl: row.item?.image_url,
+      itemDescription: row.item?.description
+    }));
+  }
+
+  // Buy Market Item
+  async buyMarketItem(listingId: string, quantity: number): Promise<{ success: boolean; message: string }> {
+    if (!this.currentUserId) return { success: false, message: 'Giriş gerekli' };
+
+    const { data, error } = await supabase.rpc('buy_market_item', {
+      p_listing_id: listingId,
+      p_buyer_id: this.currentUserId,
+      p_quantity: quantity
+    });
+
+    if (error) return { success: false, message: error.message };
+
+    const res = data?.[0] || { success: false, message: 'İşlem başarısız' };
+
+    if (res.success) {
+      await this.loadPlayerStatsFromSupabase(); // Update cash and inventory columns
+    }
+    return { success: res.success, message: res.message };
+  }
+
+  // Get Inventory (Mapped from Stats & Table)
+  async getInventory(): Promise<any[]> {
+    if (!this.currentUserId) return [];
+
+    const slots: any[] = [];
+
+    // 1. Map Stats Columns to Inventory Slots
+    if (this.playerStats.cola > 0) {
+      slots.push(this.createVirtualSlot('cola', 'Kola', 'food', 20, this.playerStats.cola, 'https://cdn-icons-png.flaticon.com/512/2722/2722527.png', 'Soğuk kola. 20 Enerji yeniler.'));
+    }
+    if (this.playerStats.water > 0) {
+      slots.push(this.createVirtualSlot('water', 'Su', 'food', 10, this.playerStats.water, 'https://cdn-icons-png.flaticon.com/512/3105/3105807.png', 'Temiz su. 10 Enerji yeniler.'));
+    }
+    if (this.playerStats.apple > 0) {
+      slots.push(this.createVirtualSlot('apple', 'Elma', 'food', 5, this.playerStats.apple, 'https://cdn-icons-png.flaticon.com/512/415/415733.png', 'Taze elma. 5 Enerji yeniler.'));
+    }
+    if (this.playerStats.weapon > 0) {
+      slots.push(this.createVirtualSlot('weapon', 'Baretta 9mm', 'weapon', 1, this.playerStats.weapon, 'https://cdn-icons-png.flaticon.com/128/1529/1529117.png', 'Standart tabanca. Güç +1'));
+    }
+
+    return slots;
+  }
+
+  private createVirtualSlot(key: string, name: string, type: string, effect: number, quantity: number, img: string, desc: string) {
+    return {
+      id: key,
+      itemId: key,
+      name: name,
+      quantity: quantity,
+      imageUrl: img,
+      description: desc,
+      item: {
+        id: key,
+        name: name,
+        type: type,
+        effectType: type === 'weapon' ? 'power' : 'energy',
+        effectValue: effect,
+        imageUrl: img,
+        description: desc,
+        basePrice: 0
+      }
+    };
+  }
+
+  // Use Item Logic (Redirect to stats if applicable)
+  async useInventoryItem(itemId: string): Promise<{ success: boolean; message: string }> {
+    // Check if it's a stats item
+    if (['cola', 'water', 'apple'].includes(itemId)) {
+      return this.useStatsItem(itemId);
+    }
+    return { success: false, message: 'Bu eşya kullanılamaz.' };
+  }
+
+  async sellInventoryItem(itemId: string, quantity: number, price: number): Promise<{ success: boolean; message: string }> {
+    return { success: false, message: 'Şu an satış kapalı.' };
+  }
+
+  private async useStatsItem(type: string): Promise<{ success: boolean; message: string }> {
+    let energyGain = 0;
+    if (type === 'cola') energyGain = 20;
+    if (type === 'water') energyGain = 10;
+    if (type === 'apple') energyGain = 5;
+
+    if (this.playerStats.energy >= 100) return { success: false, message: 'Enerjiniz zaten dolu!' };
+
+    // Optimistic update
+    if (type === 'cola' && this.playerStats.cola > 0) this.playerStats.cola--;
+    else if (type === 'water' && this.playerStats.water > 0) this.playerStats.water--;
+    else if (type === 'apple' && this.playerStats.apple > 0) this.playerStats.apple--;
+    else return { success: false, message: 'Eşya kalmadı.' };
+
+    this.playerStats.energy = Math.min(100, this.playerStats.energy + energyGain);
+
+    // Sync to DB 
+    const updates: any = { energy: this.playerStats.energy };
+    if (type === 'cola') updates.cola = this.playerStats.cola;
+    if (type === 'water') updates.water = this.playerStats.water;
+    if (type === 'apple') updates.apple = this.playerStats.apple;
+
+    const { error } = await supabase.from('player_stats').update(updates).eq('id', this.currentUserId);
+    if (error) {
+      return { success: false, message: 'Hata oluştu' };
+    }
+
+    return { success: true, message: `${energyGain} Enerji kazanıldı!` };
   }
 
   // Bölgeye saldır (Supabase RPC)
@@ -570,6 +750,10 @@ class GameService {
       passiveIncome: 0,
       lastIncomeCollection: new Date(),
       mtCoins: 500,
+      cola: 0,
+      water: 0,
+      apple: 0,
+      weapon: 0
     };
   }
 
@@ -602,6 +786,34 @@ class GameService {
     return {
       success: result.success,
       message: result.message
+    };
+  }
+
+  // Soldato üretimini elmas ile anında bitir
+  async instantFinishSoldierTraining(): Promise<{ success: boolean; message: string; soldiersAdded: number; cost: number }> {
+    if (!this.currentUserId) return { success: false, message: 'Kullanıcı yok', soldiersAdded: 0, cost: 0 };
+
+    const { data, error } = await supabase.rpc('rpc_finish_soldier_training_instantly');
+
+    if (error) {
+      console.error('❌ Instant finish error:', error);
+      return { success: false, message: error.message, soldiersAdded: 0, cost: 0 };
+    }
+
+    const result = data?.[0] || { success: false, message: '', soldiers_added: 0, cost: 0 };
+
+    if (result.success && result.soldiers_added > 0) {
+      this.playerStats.soldiers += result.soldiers_added;
+      if (result.cost > 0) {
+        this.playerStats.mtCoins = (this.playerStats.mtCoins || 0) - result.cost;
+      }
+    }
+
+    return {
+      success: result.success,
+      message: result.message,
+      soldiersAdded: result.soldiers_added,
+      cost: result.cost
     };
   }
 
@@ -1258,7 +1470,8 @@ class GameService {
         requiredLevel: 1,
         cooldown: 300,
         category: 'street',
-        riskLevel: 'low'
+        riskLevel: 'low',
+        imageUrl: 'https://images.unsplash.com/photo-1567095761054-7a02e69e5c43?w=400'
       },
       {
         id: 'street_2',
@@ -1272,7 +1485,8 @@ class GameService {
         requiredLevel: 2,
         cooldown: 600,
         category: 'street',
-        riskLevel: 'low'
+        riskLevel: 'low',
+        imageUrl: 'https://images.unsplash.com/photo-1556656793-08538906a9f8?w=400'
       },
       {
         id: 'street_3',
@@ -1286,7 +1500,8 @@ class GameService {
         requiredLevel: 4,
         cooldown: 900,
         category: 'street',
-        riskLevel: 'medium'
+        riskLevel: 'medium',
+        imageUrl: 'https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=400'
       },
       {
         id: 'street_4',
@@ -1300,7 +1515,8 @@ class GameService {
         requiredLevel: 6,
         cooldown: 1200,
         category: 'street',
-        riskLevel: 'medium'
+        riskLevel: 'medium',
+        imageUrl: 'https://images.unsplash.com/photo-1489824904134-891ab64532f1?w=400'
       },
       {
         id: 'street_5',
@@ -1314,7 +1530,8 @@ class GameService {
         requiredLevel: 8,
         cooldown: 1800,
         category: 'street',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400'
       },
 
       // İş Suçları (Level 10-20)
@@ -1330,7 +1547,8 @@ class GameService {
         requiredLevel: 10,
         cooldown: 2400,
         category: 'business',
-        riskLevel: 'medium'
+        riskLevel: 'medium',
+        imageUrl: 'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=400'
       },
       {
         id: 'business_2',
@@ -1344,7 +1562,8 @@ class GameService {
         requiredLevel: 12,
         cooldown: 3000,
         category: 'business',
-        riskLevel: 'medium'
+        riskLevel: 'medium',
+        imageUrl: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=400'
       },
       {
         id: 'business_3',
@@ -1358,7 +1577,8 @@ class GameService {
         requiredLevel: 15,
         cooldown: 3600,
         category: 'business',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1554672408-17407e0322ce?w=400'
       },
       {
         id: 'business_4',
@@ -1372,7 +1592,8 @@ class GameService {
         requiredLevel: 17,
         cooldown: 4200,
         category: 'business',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1596838132731-3301c3fd4317?w=400'
       },
       {
         id: 'business_5',
@@ -1386,7 +1607,8 @@ class GameService {
         requiredLevel: 20,
         cooldown: 5400,
         category: 'business',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1501167786227-4cba60f6d58f?w=400'
       },
 
       // Politik Suçlar (Level 20-30)
@@ -1402,7 +1624,8 @@ class GameService {
         requiredLevel: 22,
         cooldown: 6000,
         category: 'political',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=400'
       },
       {
         id: 'political_2',
@@ -1416,7 +1639,8 @@ class GameService {
         requiredLevel: 24,
         cooldown: 7200,
         category: 'political',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?w=400'
       },
       {
         id: 'political_3',
@@ -1430,7 +1654,8 @@ class GameService {
         requiredLevel: 26,
         cooldown: 9000,
         category: 'political',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1589391886645-d51941baf7fb?w=400'
       },
       {
         id: 'political_4',
@@ -1444,7 +1669,8 @@ class GameService {
         requiredLevel: 28,
         cooldown: 10800,
         category: 'political',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1453873531674-2151bcd01707?w=400'
       },
       {
         id: 'political_5',
@@ -1458,7 +1684,8 @@ class GameService {
         requiredLevel: 30,
         cooldown: 14400,
         category: 'political',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1541872703-74c5e44368f9?w=400'
       },
 
       // Uluslararası Suçlar (Level 30+)
@@ -1474,7 +1701,8 @@ class GameService {
         requiredLevel: 32,
         cooldown: 18000,
         category: 'international',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1584281722920-7c2d9e1bf1dc?w=400'
       },
       {
         id: 'international_2',
@@ -1488,7 +1716,8 @@ class GameService {
         requiredLevel: 34,
         cooldown: 21600,
         category: 'international',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1587854692152-cbe660dbde88?w=400'
       },
       {
         id: 'international_3',
@@ -1502,7 +1731,8 @@ class GameService {
         requiredLevel: 36,
         cooldown: 25200,
         category: 'international',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1566576912321-d58ddd7a6088?w=400'
       },
       {
         id: 'international_4',
@@ -1516,7 +1746,8 @@ class GameService {
         requiredLevel: 38,
         cooldown: 28800,
         category: 'international',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=400'
       },
       {
         id: 'international_5',
@@ -1530,9 +1761,17 @@ class GameService {
         requiredLevel: 40,
         cooldown: 36000,
         category: 'international',
-        riskLevel: 'high'
+        riskLevel: 'high',
+        imageUrl: 'https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=400'
       }
     ];
+
+    // User requested overrides: 10s base duration + 10s increment, 0 cooldown
+    this.crimes = this.crimes.map((crime, index) => ({
+      ...crime,
+      duration: 10 + (index * 10),
+      cooldown: 0 // cooldowni kaldir
+    }));
 
 
 
@@ -1554,7 +1793,7 @@ class GameService {
         type: 'street',
         category: 'Sokak İşletmeleri',
         description: 'Basit bir dükkan işletmek',
-        baseIncome: 50,
+        baseIncome: 200,
         currentIncome: 50,
         level: 1,
         maxLevel: 10,
@@ -1579,7 +1818,7 @@ class GameService {
         type: 'street',
         category: 'Sokak İşletmeleri',
         description: 'Gizli kumar oyunları',
-        baseIncome: 120,
+        baseIncome: 400,
         currentIncome: 120,
         level: 1,
         maxLevel: 10,
@@ -1658,7 +1897,7 @@ class GameService {
         type: 'entertainment',
         category: 'Eğlence İşletmeleri',
         description: 'Gece eğlence merkezi',
-        baseIncome: 600,
+        baseIncome: 2000,
         currentIncome: 600,
         level: 1,
         maxLevel: 10,
@@ -1683,7 +1922,7 @@ class GameService {
         type: 'entertainment',
         category: 'Eğlence İşletmeleri',
         description: 'Lüks kumar salonu',
-        baseIncome: 800,
+        baseIncome: 3000,
         currentIncome: 800,
         level: 1,
         maxLevel: 10,
@@ -1769,6 +2008,8 @@ class GameService {
         defense: 50,
         soldiers: 10,
         status: 'owned',
+        countryId: 'turkey',
+        countryName: 'Türkiye'
       },
       {
         id: 'docks',
@@ -1778,6 +2019,8 @@ class GameService {
         defense: 75,
         soldiers: 15,
         status: 'enemy',
+        countryId: 'turkey',
+        countryName: 'Türkiye'
       },
     ];
   }

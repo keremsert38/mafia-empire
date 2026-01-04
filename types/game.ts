@@ -33,6 +33,12 @@ export interface PlayerStats {
   passiveIncome: number; // New field for passive income
   lastIncomeCollection: Date; // Track when income was last collected
   mtCoins: number; // MT Coins (premium currency)
+  cola: number;
+  water: number;
+  apple: number;
+  weapon: number;
+  lastAttackTime?: Date;
+  lastDefendTime?: Date;
 }
 
 export interface Business {
@@ -77,7 +83,10 @@ export interface BusinessFeature {
 export interface Territory {
   id: string;
   name: string;
+  countryId: string;
+  countryName: string;
   owner: string;
+  ownerName?: string; // New field for owner name
   income: number;
   defense: number;
   soldiers: number;
@@ -85,6 +94,13 @@ export interface Territory {
   attackTime?: number;
   attackProgress?: number;
   assignedCaporegime?: string; // New field for assigned caporegime
+}
+
+export interface Country {
+  id: string;
+  name: string;
+  flag: string;
+  description: string;
 }
 
 export interface Mission {
@@ -173,6 +189,7 @@ export interface Crime {
   riskLevel?: 'low' | 'medium' | 'high';
   category?: 'street' | 'business' | 'political' | 'international';
   lastUsed?: Date;
+  imageUrl?: string;
 }
 
 export interface Caporegime {
@@ -188,6 +205,49 @@ export interface Caporegime {
   earnings: number;
   lastActive: Date;
   assignedTerritory?: string; // New field for territory assignment
+}
+
+export interface Item {
+  id: string;
+  name: string;
+  type: 'weapon' | 'food';
+  effectType: 'power' | 'energy';
+  effectValue: number;
+  imageUrl: string;
+  description: string;
+  basePrice?: number;
+}
+
+export interface InventorySlot {
+  id: string;
+  itemId: string;
+  item: Item;
+  quantity: number;
+  // Join fields from items table if needed
+  name?: string;
+  type?: 'weapon' | 'food';
+  effectType?: 'power' | 'energy';
+  effectValue?: number;
+  imageUrl?: string;
+  description?: string;
+}
+
+export interface MarketListing {
+  id: string;
+  sellerId: string | null;
+  sellerName?: string; // For UI
+  itemId: string;
+  item?: Item; // Joined item
+  // Flat item fields if joined
+  itemName?: string;
+  itemType?: 'weapon' | 'food';
+  itemEffectValue?: number;
+  itemImageUrl?: string;
+
+  price: number;
+  quantity: number;
+  createdAt: string;
+  isSystem: boolean;
 }
 
 export interface GameState {

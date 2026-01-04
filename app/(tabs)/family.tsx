@@ -33,6 +33,7 @@ import {
 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTutorial } from '@/contexts/TutorialContext';
 import { gameService } from '@/services/gameService';
 
 
@@ -90,6 +91,7 @@ interface FamilyDonation {
 
 function FamilyScreen() {
   const { user } = useAuth();
+  const { checkStepCompletion, currentStep } = useTutorial();
   const [activeTab, setActiveTab] = useState<'browse' | 'create' | 'my-family' | 'requests' | 'donations'>('browse');
   const [families, setFamilies] = useState<Family[]>([]);
   const [myFamily, setMyFamily] = useState<Family | null>(null);
@@ -132,6 +134,13 @@ function FamilyScreen() {
     loadJoinRequests();
     loadPlayerStats();
   }, [user]);
+
+  // Tutorial: Eğer zaten ailesi varsa aile adımını tamamla
+  useEffect(() => {
+    if (currentStep === 5 && myFamily) {
+      checkStepCompletion('family');
+    }
+  }, [currentStep, myFamily]);
 
   // Aile durumu değiştiğinde tab'ı otomatik güncelle
   useEffect(() => {
@@ -375,6 +384,8 @@ function FamilyScreen() {
       loadFamilies();
       loadPlayerStats();
       setActiveTab('my-family');
+      // Tutorial: Aile adımı tamamlandı
+      checkStepCompletion('family');
 
     } catch (error: any) {
       console.error('Error creating family:', error);
