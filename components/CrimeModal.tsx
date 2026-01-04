@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  Image,
   Dimensions,
 } from 'react-native';
 import { X, Zap, DollarSign, Clock, Lock, Star, Building, Globe, Users, ChevronRight } from 'lucide-react-native';
@@ -26,26 +25,7 @@ interface CrimeModalProps {
   onCommitCrime: (crimeId: string) => { success: boolean; message: string; reward?: number; xp?: number };
 }
 
-// Local crime images mapping
-const crimeImages: { [key: string]: any } = {
-  'street_1': require('@/assets/images/crimes/crime_graffiti_1767282637364.png'),
-  'street_2': require('@/assets/images/crimes/crime_phone_theft_1767282682940.png'),
-  'street_3': require('@/assets/images/crimes/crime_store_robbery_1767282699730.png'),
-  'street_4': require('@/assets/images/crimes/crime_car_theft_1767282717126.png'),
-  'street_5': require('@/assets/images/crimes/crime_house_burglary_1767282740424.png'),
-  'business_1': require('@/assets/images/crimes/crime_fake_documents_1767282773907.png'),
-  'business_2': require('@/assets/images/crimes/crime_smuggling_1767282799949.png'),
-  'business_3': require('@/assets/images/crimes/crime_money_laundering_1767282818924.png'),
-  'business_4': require('@/assets/images/crimes/crime_casino_1767282836700.png'),
-  'business_5': require('@/assets/images/crimes/crime_bank_heist_1767282856117.png'),
-  'political_1': require('@/assets/images/crimes/crime_bribery_1767282904066.png'),
-  'political_2': require('@/assets/images/crimes/crime_election_fraud_1767282925718.png'),
-  'political_3': require('@/assets/images/crimes/crime_judge_bribe_1767282963768.png'),
-  'political_4': require('@/assets/images/crimes/crime_police_threat_1767282982960.png'),
-  'political_5': require('@/assets/images/crimes/crime_politician_control_1767283007628.png'),
-  'international_1': require('@/assets/images/crimes/crime_arms_deal_1767283134465.png'),
-  'international_2': require('@/assets/images/crimes/crime_drug_cartel_1767283155030.png'),
-};
+// Crime images removed - using black backgrounds
 
 export default function CrimeModal({ visible, onClose, crimes, playerLevel, activeCrimeTimeRemaining, isCommittingCrime, onCommitCrime }: CrimeModalProps) {
   const [selectedCategory, setSelectedCategory] = useState<'street' | 'business' | 'political' | 'international'>('street');
@@ -120,36 +100,6 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
   const filteredCrimes = crimes.filter(crime => crime.category === selectedCategory);
   const selectedCategoryData = categories.find(c => c.id === selectedCategory);
 
-  const getCrimeImage = (crimeId: string) => {
-    // Check local images first
-    if (crimeImages[crimeId]) {
-      return crimeImages[crimeId];
-    }
-
-    // Handpick images for remaining international crimes
-    if (crimeId === 'international_3') {
-      // Human Trafficking / Smuggling -> Shipping Containers
-      return { uri: 'https://images.unsplash.com/photo-1505163155799-a68132aa4105?w=400' };
-    }
-    if (crimeId === 'international_4') {
-      // Cyber Attack -> Hacker/Code
-      return { uri: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=400' };
-    }
-    if (crimeId === 'international_5') {
-      // Global Empire -> City Skyline
-      return { uri: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=400' };
-    }
-
-    // Fallback definition image if available, else generic
-    const crime = crimes.find(c => c.id === crimeId);
-    if (crime?.imageUrl && crime.imageUrl.startsWith('http')) {
-      return { uri: crime.imageUrl };
-    }
-
-    // Absolute fallback
-    return { uri: 'https://images.unsplash.com/photo-1470790376778-a9fbc86d70e2?w=400' };
-  };
-
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
@@ -215,13 +165,9 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
                     disabled={isLocked || isOnCooldown}
                     activeOpacity={0.7}
                   >
-                    {/* Top: Image */}
+                    {/* Top: Black Background */}
                     <View style={styles.imageSection}>
-                      <Image
-                        source={getCrimeImage(crime.id)}
-                        style={styles.crimeImage}
-                        resizeMode="cover"
-                      />
+                      <View style={styles.crimeImage} />
                       {/* Risk Badge */}
                       <View style={[styles.riskBadge, { backgroundColor: getRiskColor(crime.riskLevel || 'low') }]}>
                         <Text style={styles.riskText}>{getRiskText(crime.riskLevel || 'low')}</Text>
@@ -389,6 +335,7 @@ const styles = StyleSheet.create({
   crimeImage: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#000',
   },
   riskBadge: {
     position: 'absolute',

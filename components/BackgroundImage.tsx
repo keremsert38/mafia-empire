@@ -1,5 +1,5 @@
 import React from 'react';
-import { ImageBackground, StyleSheet, ViewStyle } from 'react-native';
+import { View, StyleSheet, ViewStyle } from 'react-native';
 
 interface BackgroundImageProps {
   children: React.ReactNode;
@@ -8,14 +8,9 @@ interface BackgroundImageProps {
 
 export default function BackgroundImage({ children, style }: BackgroundImageProps) {
   return (
-    <ImageBackground
-      source={require('../assets/images/city-background.png')}
-      style={[styles.background, style]}
-      imageStyle={styles.imageStyle}
-      resizeMode="cover"
-    >
+    <View style={[styles.background, style]}>
       {children}
-    </ImageBackground>
+    </View>
   );
 }
 
@@ -26,7 +21,5 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#000000',
   },
-  imageStyle: {
-    opacity: 0.7, // Görsel daha belirgin
-  },
 });
+

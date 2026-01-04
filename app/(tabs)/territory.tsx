@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  Image,
   Dimensions,
   Modal,
 } from 'react-native';
@@ -214,11 +213,7 @@ export default function TerritoryScreen() {
               contentContainerStyle={styles.mapScrollContent}
             >
               <View style={[styles.mapWrapper, { transform: [{ scale: mapScale }] }]}>
-                <Image
-                  source={require('@/assets/images/dark_map.png')}
-                  style={styles.mapImage}
-                  resizeMode="contain"
-                />
+                <View style={styles.mapImage} />
               </View>
             </ScrollView>
           </ScrollView>
@@ -495,6 +490,7 @@ const styles = StyleSheet.create({
   mapImage: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#000',
   },
   mapInfo: {
     position: 'absolute',
