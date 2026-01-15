@@ -106,45 +106,72 @@ export default function AttackModal({
         }
     };
 
-    const handleAttack = async () => {
-        if (!selectedPlayer) {
-            Alert.alert('Hata', 'Lütfen bir hedef seçin!');
-            return;
-        }
+    const [battleState, setBattleState] = useState({
+        baretta: 0,
+        ak47: 0
+    });
+
+    // gameService hook returns an object containing the instance as 'gameService' property
+    const { gameService } = useGameService();
+
+    // ... existing checkCooldown ...
+
+    const handleAttackV2 = async () => {
+        if (!selectedPlayer) return;
 
         const soldiers = parseInt(soldiersToSend);
         if (isNaN(soldiers) || soldiers <= 0) {
-            Alert.alert('Hata', 'Geçerli bir asker sayısı girin!');
+            Alert.alert('Hata', 'Asker sayısı giriniz!');
             return;
         }
 
-        if (soldiers > playerSoldiers) {
-            Alert.alert('Yetersiz Asker', `Sadece ${playerSoldiers} askeriniz var!`);
+        // Validate weapons (Should be handled by UI constraints, but double check)
+        if (battleState.baretta + battleState.ak47 > soldiers) {
+            Alert.alert('Hata', 'Silah sayısı asker sayısından fazla olamaz!');
             return;
         }
 
         Alert.alert(
-            'Saldırı Onayla',
-            `${selectedPlayer.username} adlı oyuncuya ${soldiers} askerle saldırmak istediğinizden emin misiniz?`,
+            'Saldırı Onayı',
+            `${selectedPlayer.username} oyuncusuna saldıracaksınız.\n\n` +
+            `⚔️ Asker: ${soldiers}\n` +
+            `🔫 Baretta: ${battleState.baretta}\n` +
+            `🔫 AK-47: ${battleState.ak47}\n\n` +
+            `🔥 Tahmini Güç: ${(soldiers * 5) + (battleState.baretta * 3) + (battleState.ak47 * 10)}`,
             [
                 { text: 'İptal', style: 'cancel' },
                 {
-                    text: 'Saldır',
+                    text: 'SALDIR!',
                     style: 'destructive',
                     onPress: async () => {
                         setLoading(true);
                         try {
-                            const result = await onAttack(selectedPlayer.id, selectedPlayer.username, soldiers);
+                            const result = await gameService.attackPlayerV2(
+                                selectedPlayer.id,
+                                soldiers,
+                                battleState.baretta,
+                                battleState.ak47
+                            );
+
                             if (result.success) {
-                                Alert.alert('Başarılı', result.message);
+                                Alert.alert('Sonuç', result.message);
                                 setSelectedPlayer(null);
                                 setSoldiersToSend('');
-                                await loadPlayers();
+                                setBattleState({ baretta: 0, ak47: 0 });
+
+                                // Savaş sonrası player stats'ı güncelle
+                                try {
+                                    await gameService.loadPlayerStatsFromSupabase();
+                                } catch (e) {
+                                    console.log('Stats refresh error:', e);
+                                }
+
+                                onClose(); // Close modal on success
                             } else {
-                                Alert.alert('Hata', result.message);
+                                Alert.alert('Başarısız', result.message);
                             }
                         } catch (error: any) {
-                            Alert.alert('Hata', error.message || 'Saldırı başarısız!');
+                            Alert.alert('Hata', error.message);
                         } finally {
                             setLoading(false);
                         }
@@ -158,6 +185,10 @@ export default function AttackModal({
         const current = parseInt(soldiersToSend) || 0;
         const newValue = Math.max(0, Math.min(playerSoldiers, current + change));
         setSoldiersToSend(newValue.toString());
+        // Reset weapons if soldiers are reduced below weapon count
+        if (newValue < battleState.baretta + battleState.ak47) {
+            setBattleState({ baretta: 0, ak47: 0 });
+        }
     };
 
     return (
@@ -196,77 +227,153 @@ export default function AttackModal({
                             />
                         </View>
 
-                        {/* Player Stats */}
-                        <View style={styles.statsCard}>
-                            <Text style={styles.statsLabel}>Mevcut Askerleriniz:</Text>
-                            <Text style={styles.statsValue}>{playerSoldiers}</Text>
-                        </View>
-
-                        {/* Selected Player */}
-                        {selectedPlayer && (
-                            <View style={styles.selectedPlayerCard}>
-                                <Text style={styles.sectionTitle}>Seçilen Hedef:</Text>
-                                <Text style={styles.playerName}>{selectedPlayer.username}</Text>
-
-                                {/* Soldier Input */}
-                                <View style={styles.soldierInputSection}>
-                                    <Text style={styles.sectionTitle}>Kaç Asker?</Text>
-                                    <View style={styles.counter}>
-                                        <TouchableOpacity
-                                            style={styles.counterButton}
-                                            onPress={() => adjustSoldiers(-10)}
-                                        >
-                                            <Text style={styles.counterButtonText}>-10</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={styles.counterButton}
-                                            onPress={() => adjustSoldiers(-1)}
-                                        >
-                                            <Text style={styles.counterButtonText}>-</Text>
-                                        </TouchableOpacity>
-                                        <TextInput
-                                            style={styles.soldierInput}
-                                            value={soldiersToSend}
-                                            onChangeText={setSoldiersToSend}
-                                            keyboardType="numeric"
-                                            placeholder="0"
-                                            placeholderTextColor="#666"
-                                        />
-                                        <TouchableOpacity
-                                            style={styles.counterButton}
-                                            onPress={() => adjustSoldiers(1)}
-                                        >
-                                            <Text style={styles.counterButtonText}>+</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={styles.counterButton}
-                                            onPress={() => adjustSoldiers(10)}
-                                        >
-                                            <Text style={styles.counterButtonText}>+10</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-
-                                {/* Attack Button */}
-                                <TouchableOpacity
-                                    style={[
-                                        styles.attackButton,
-                                        (loading || !soldiersToSend || parseInt(soldiersToSend) <= 0 || !!cooldownRemaining) && styles.attackButtonDisabled
-                                    ]}
-                                    onPress={handleAttack}
-                                    disabled={loading || !soldiersToSend || parseInt(soldiersToSend) <= 0 || !!cooldownRemaining}
-                                >
-                                    <Sword size={20} color="#fff" />
-                                    <Text style={styles.attackButtonText}>
-                                        {loading ? 'Saldırılıyor...' : 'Saldır!'}
-                                    </Text>
-                                </TouchableOpacity>
+                        <ScrollView style={styles.scrollContent} contentContainerStyle={styles.scrollContentContainer} showsVerticalScrollIndicator={false}>
+                            {/* Player Stats */}
+                            <View style={styles.statsCard}>
+                                <Text style={styles.statsLabel}>Mevcut Askerleriniz:</Text>
+                                <Text style={styles.statsValue}>{playerSoldiers}</Text>
                             </View>
-                        )}
 
-                        {/* Player List */}
-                        <Text style={styles.sectionTitle}>Oyuncular:</Text>
-                        <ScrollView style={styles.playerList} showsVerticalScrollIndicator={false}>
+                            {/* Selected Player */}
+                            {selectedPlayer && (
+                                <View style={styles.selectedPlayerCard}>
+                                    <Text style={styles.sectionTitle}>Seçilen Hedef:</Text>
+                                    <Text style={styles.playerName}>{selectedPlayer.username}</Text>
+
+                                    {/* Soldier Input */}
+                                    <View style={styles.soldierInputSection}>
+                                        <View style={styles.rowBetween}>
+                                            <Text style={styles.sectionTitle}>Kaç Asker?</Text>
+                                            <Text style={styles.powerPreview}>Güç: {
+                                                (parseInt(soldiersToSend) || 0) * 5 +
+                                                (battleState.baretta * 3) +
+                                                (battleState.ak47 * 10)
+                                            }</Text>
+                                        </View>
+                                        <View style={styles.counter}>
+                                            <TouchableOpacity style={styles.counterButton} onPress={() => adjustSoldiers(-10)}><Text style={styles.counterButtonText}>-10</Text></TouchableOpacity>
+                                            <TouchableOpacity style={styles.counterButton} onPress={() => adjustSoldiers(-1)}><Text style={styles.counterButtonText}>-</Text></TouchableOpacity>
+                                            <TextInput
+                                                style={styles.soldierInput}
+                                                value={soldiersToSend}
+                                                onChangeText={setSoldiersToSend}
+                                                keyboardType="numeric"
+                                                placeholder="0"
+                                                placeholderTextColor="#666"
+                                            />
+                                            <TouchableOpacity style={styles.counterButton} onPress={() => adjustSoldiers(1)}><Text style={styles.counterButtonText}>+</Text></TouchableOpacity>
+                                            <TouchableOpacity style={styles.counterButton} onPress={() => adjustSoldiers(10)}><Text style={styles.counterButtonText}>+10</Text></TouchableOpacity>
+                                        </View>
+                                    </View>
+
+                                    {/* Weapon Selection */}
+                                    <View style={styles.weaponSection}>
+                                        <Text style={styles.sectionTitle}>Silah Seçimi (Max: {parseInt(soldiersToSend) || 0})</Text>
+
+                                        {/* Baretta */}
+                                        <View style={styles.weaponRow}>
+                                            <View style={styles.weaponInfo}>
+                                                <Text style={styles.weaponName}>Baretta (Güç: +3)</Text>
+                                                <Text style={styles.weaponStock}>Stok: {playerStats?.baretta || 0}</Text>
+                                            </View>
+                                            <View style={styles.counterSmallContainer}>
+                                                <TouchableOpacity
+                                                    style={styles.maxButton}
+                                                    onPress={() => {
+                                                        const soldiers = parseInt(soldiersToSend) || 0;
+                                                        const availableSpace = soldiers - battleState.ak47;
+                                                        const maxPossible = Math.min(playerStats?.baretta || 0, availableSpace);
+                                                        setBattleState(prev => ({ ...prev, baretta: Math.max(0, maxPossible) }));
+                                                    }}
+                                                >
+                                                    <Text style={styles.maxButtonText}>MAX</Text>
+                                                </TouchableOpacity>
+                                                <View style={styles.counterSmall}>
+                                                    <TouchableOpacity
+                                                        style={styles.counterButtonSmall}
+                                                        onPress={() => setBattleState(prev => ({ ...prev, baretta: Math.max(0, prev.baretta - 1) }))}
+                                                    >
+                                                        <Text style={styles.counterButtonText}>-</Text>
+                                                    </TouchableOpacity>
+                                                    <Text style={styles.counterValue}>{battleState.baretta}</Text>
+                                                    <TouchableOpacity
+                                                        style={styles.counterButtonSmall}
+                                                        onPress={() => {
+                                                            const soldiers = parseInt(soldiersToSend) || 0;
+                                                            const currentTotal = battleState.baretta + battleState.ak47;
+                                                            if (currentTotal < soldiers && battleState.baretta < (playerStats?.baretta || 0)) {
+                                                                setBattleState(prev => ({ ...prev, baretta: prev.baretta + 1 }));
+                                                            }
+                                                        }}
+                                                    >
+                                                        <Text style={styles.counterButtonText}>+</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        </View>
+
+                                        {/* AK-47 */}
+                                        <View style={styles.weaponRow}>
+                                            <View style={styles.weaponInfo}>
+                                                <Text style={styles.weaponName}>AK-47 (Güç: +10)</Text>
+                                                <Text style={styles.weaponStock}>Stok: {playerStats?.ak47 || 0}</Text>
+                                            </View>
+                                            <View style={styles.counterSmallContainer}>
+                                                <TouchableOpacity
+                                                    style={styles.maxButton}
+                                                    onPress={() => {
+                                                        const soldiers = parseInt(soldiersToSend) || 0;
+                                                        const availableSpace = soldiers - battleState.baretta;
+                                                        const maxPossible = Math.min(playerStats?.ak47 || 0, availableSpace);
+                                                        setBattleState(prev => ({ ...prev, ak47: Math.max(0, maxPossible) }));
+                                                    }}
+                                                >
+                                                    <Text style={styles.maxButtonText}>MAX</Text>
+                                                </TouchableOpacity>
+                                                <View style={styles.counterSmall}>
+                                                    <TouchableOpacity
+                                                        style={styles.counterButtonSmall}
+                                                        onPress={() => setBattleState(prev => ({ ...prev, ak47: Math.max(0, prev.ak47 - 1) }))}
+                                                    >
+                                                        <Text style={styles.counterButtonText}>-</Text>
+                                                    </TouchableOpacity>
+                                                    <Text style={styles.counterValue}>{battleState.ak47}</Text>
+                                                    <TouchableOpacity
+                                                        style={styles.counterButtonSmall}
+                                                        onPress={() => {
+                                                            const soldiers = parseInt(soldiersToSend) || 0;
+                                                            const currentTotal = battleState.baretta + battleState.ak47;
+                                                            if (currentTotal < soldiers && battleState.ak47 < (playerStats?.ak47 || 0)) {
+                                                                setBattleState(prev => ({ ...prev, ak47: prev.ak47 + 1 }));
+                                                            }
+                                                        }}
+                                                    >
+                                                        <Text style={styles.counterButtonText}>+</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        </View>
+                                    </View>
+
+                                    {/* Attack Button */}
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.attackButton,
+                                            (loading || !soldiersToSend || parseInt(soldiersToSend) <= 0 || !!cooldownRemaining) && styles.attackButtonDisabled
+                                        ]}
+                                        onPress={handleAttackV2}
+                                        disabled={loading || !soldiersToSend || parseInt(soldiersToSend) <= 0 || !!cooldownRemaining}
+                                    >
+                                        <Sword size={20} color="#fff" />
+                                        <Text style={styles.attackButtonText}>
+                                            {loading ? 'Saldırılıyor...' : 'SALDIR!'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+
+                            {/* Player List */}
+                            <Text style={styles.sectionTitle}>Oyuncular:</Text>
                             {loading && players.length === 0 ? (
                                 <Text style={styles.loadingText}>Yükleniyor...</Text>
                             ) : filteredPlayers.length === 0 ? (
@@ -487,5 +594,84 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: 'bold',
         flex: 1,
+    },
+    rowBetween: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+    },
+    powerPreview: {
+        color: '#ff6b6b',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    weaponSection: {
+        marginTop: 15,
+        marginBottom: 15,
+        backgroundColor: '#333',
+        borderRadius: 8,
+        padding: 10,
+    },
+    weaponRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+        paddingBottom: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#444',
+    },
+    weaponInfo: {
+        flex: 1,
+    },
+    weaponName: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 14,
+    },
+    weaponStock: {
+        color: '#999',
+        fontSize: 12,
+    },
+    counterSmall: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#222',
+        borderRadius: 6,
+        padding: 2,
+    },
+    counterButtonSmall: {
+        padding: 8,
+        minWidth: 30,
+        alignItems: 'center',
+    },
+    counterValue: {
+        color: '#fff',
+        minWidth: 20,
+        textAlign: 'center',
+        fontWeight: 'bold',
+    },
+    scrollContent: {
+        flex: 1,
+    },
+    scrollContentContainer: {
+        paddingBottom: 20,
+    },
+    counterSmallContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    maxButton: {
+        backgroundColor: '#ff6b6b',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
+    },
+    maxButtonText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: 'bold',
     },
 });

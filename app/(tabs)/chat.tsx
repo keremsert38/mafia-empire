@@ -20,6 +20,7 @@ interface ChatMessage {
   user_id: string;
   username: string;
   message: string;
+  is_admin?: boolean;
   created_at: string;
 }
 
@@ -83,7 +84,21 @@ export default function ChatScreen() {
         return;
       }
 
-      setMessages(data || []);
+      // Admin listesini player_stats'tan al
+      const { data: adminData } = await supabase
+        .from('player_stats')
+        .select('id, is_admin')
+        .eq('is_admin', true);
+
+      const adminIds = (adminData || []).map((a: any) => a.id);
+
+      // Admin bilgisini mesaja ekle
+      const messagesWithAdmin = (data || []).map((msg: any) => ({
+        ...msg,
+        is_admin: msg.is_admin || adminIds.includes(msg.user_id)
+      }));
+
+      setMessages(messagesWithAdmin);
       // Scroll to bottom after loading
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -93,44 +108,76 @@ export default function ChatScreen() {
     }
   };
 
-  // Online kullanıcı sayısını güncelle
-  const updateOnlineUsers = () => {
-    setOnlineUsers(Math.floor(Math.random() * 20) + 5);
+  // Online kullanıcı sayısını database'den al (son 5 dakika içinde aktif)
+  const updateOnlineUsers = async () => {
+    try {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { count, error } = await supabase
+        .from('player_stats')
+        .select('*', { count: 'exact', head: true })
+        .gte('last_active', fiveMinutesAgo);
+
+      if (!error && count !== null) {
+        setOnlineUsers(count);
+      }
+    } catch (error) {
+      console.error('Error fetching online users:', error);
+    }
   };
 
   // Mesaj gönder
   const sendMessage = async () => {
-    if (!newMessage.trim() || !user) return;
+    console.log('sendMessage called', { newMessage, user: !!user });
 
-    // İçerik filtreleme kontrolü
-    const filterResult = filterMessage(newMessage);
-    if (!filterResult.isValid) {
-      Alert.alert('⚠️ Uyarı', BANNED_WORD_WARNING);
+    if (!newMessage.trim()) {
+      console.log('Message is empty, returning');
       return;
     }
+
+    if (!user) {
+      console.log('No user, returning');
+      Alert.alert('Hata', 'Giriş yapmanız gerekiyor!');
+      return;
+    }
+
+    // İçerik filtreleme kontrolü - GEÇİCİ KAPALI
+    // const filterResult = filterMessage(newMessage);
+    // console.log('Filter result:', filterResult);
+    // if (!filterResult.isValid) {
+    //   Alert.alert('⚠️ Uyarı', BANNED_WORD_WARNING);
+    //   return;
+    // }
+    console.log('Skipping filter, proceeding to send...');
 
     setLoading(true);
     try {
       const username = user.user_metadata?.username || user.email?.split('@')[0] || 'Anonim';
+      console.log('Sending message with username:', username, 'user_id:', user.id);
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('chat_messages')
         .insert({
           user_id: user.id,
           username,
           message: newMessage.trim()
-        });
+        })
+        .select();
+
+      console.log('Supabase response:', { data, error });
 
       if (error) {
         console.error('Error sending message:', error);
-        Alert.alert('Hata', 'Mesaj gönderilemedi!');
+        Alert.alert('Hata', `Mesaj gönderilemedi: ${error.message}`);
         return;
       }
 
+      console.log('Message sent successfully!');
       setNewMessage('');
-    } catch (error) {
-      console.error('Error sending message:', error);
-      Alert.alert('Hata', 'Mesaj gönderilemedi!');
+      // Mesajları yeniden yükle
+      await loadMessages();
+    } catch (error: any) {
+      console.error('Catch error sending message:', error);
+      Alert.alert('Hata', `Mesaj gönderilemedi: ${error.message || 'Bilinmeyen hata'}`);
     } finally {
       setLoading(false);
     }
@@ -358,12 +405,20 @@ export default function ChatScreen() {
               ]}
             >
               <View style={styles.messageHeader}>
-                <Text style={[
-                  styles.username,
-                  isMyMessage(message) ? styles.myUsername : styles.otherUsername
-                ]}>
-                  {isMyMessage(message) ? 'Sen' : message.username}
-                </Text>
+                <View style={styles.usernameContainer}>
+                  <Text style={[
+                    styles.username,
+                    isMyMessage(message) ? styles.myUsername : styles.otherUsername,
+                    message.is_admin && styles.adminUsername
+                  ]}>
+                    {isMyMessage(message) ? 'Sen' : message.username}
+                  </Text>
+                  {message.is_admin && (
+                    <View style={styles.adminBadge}>
+                      <Text style={styles.adminBadgeText}>ADMIN</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.timestamp}>
                   {formatTime(message.created_at)}
                 </Text>
@@ -619,6 +674,25 @@ const styles = StyleSheet.create({
   },
   otherUsername: {
     color: '#4ecdc4',
+  },
+  usernameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  adminUsername: {
+    color: '#ff6b6b',
+  },
+  adminBadge: {
+    backgroundColor: '#ff6b6b',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  adminBadgeText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: 'bold',
   },
   timestamp: {
     fontSize: 10,

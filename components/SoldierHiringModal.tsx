@@ -62,28 +62,30 @@ export default function SoldierHiringModal({
   const maxAffordable = Math.floor(playerStats.cash / getSoldierCost(1));
   const maxCanOrder = Math.min(maxAffordable, 500); // Max 500 tek seferde
 
-  // Power Calculations
+  // Power Calculations - Envanterdeki silahları dahil et
   const getPowerStats = () => {
     const soldiers = playerStats.soldiers;
     const basePowerPerSoldier = 5;
     const baseTotal = soldiers * basePowerPerSoldier;
 
-    // Inventory check
-    // Inventory check
-    // Updated to use new playerStats.weapon column
-    const weaponCount = playerStats.weapon || 0;
+    // Envanterdeki silahlar
+    const barettaCount = (playerStats as any).baretta || 0;
+    const ak47Count = (playerStats as any).ak47 || 0;
 
-    const armedSoldiers = Math.min(soldiers, weaponCount);
-    // +1 bonus power per armed soldier
-    const weaponBonus = armedSoldiers * 1;
+    // Silah güçleri
+    const barettaPower = barettaCount * 3;  // Her Baretta 3 güç
+    const ak47Power = ak47Count * 10;        // Her AK-47 10 güç
+    const totalWeaponPower = barettaPower + ak47Power;
 
     return {
       soldiers,
-      weaponCount,
-      armedSoldiers,
+      barettaCount,
+      ak47Count,
+      barettaPower,
+      ak47Power,
       baseTotal,
-      weaponBonus,
-      totalPower: baseTotal + weaponBonus
+      totalWeaponPower,
+      totalPower: baseTotal + totalWeaponPower
     };
   };
 
@@ -318,7 +320,7 @@ export default function SoldierHiringModal({
                   <View style={styles.breakdownRow}>
                     <View style={styles.breakdownLabelGroup}>
                       <Users size={16} color="#4ecdc4" />
-                      <Text style={styles.breakdownLabel}>Asker Taban Güç ({powerStats.soldiers} x 5)</Text>
+                      <Text style={styles.breakdownLabel}>Askerler ({powerStats.soldiers} × 5)</Text>
                     </View>
                     <Text style={styles.breakdownValue}>{powerStats.baseTotal}</Text>
                   </View>
@@ -326,23 +328,33 @@ export default function SoldierHiringModal({
                   <View style={styles.breakdownRow}>
                     <View style={styles.breakdownLabelGroup}>
                       <Target size={16} color="#ffa726" />
-                      <Text style={styles.breakdownLabel}>Silah Bonusu (+1 Güç)</Text>
+                      <Text style={styles.breakdownLabel}>🔫 Baretta ({powerStats.barettaCount} × 3)</Text>
                     </View>
-                    <Text style={[styles.breakdownValue, { color: '#66bb6a' }]}>+{powerStats.weaponBonus}</Text>
+                    <Text style={[styles.breakdownValue, { color: '#ffa726' }]}>+{powerStats.barettaPower}</Text>
+                  </View>
+
+                  <View style={styles.breakdownRow}>
+                    <View style={styles.breakdownLabelGroup}>
+                      <Sword size={16} color="#ff6b6b" />
+                      <Text style={styles.breakdownLabel}>🔫 AK-47 ({powerStats.ak47Count} × 10)</Text>
+                    </View>
+                    <Text style={[styles.breakdownValue, { color: '#ff6b6b' }]}>+{powerStats.ak47Power}</Text>
                   </View>
 
                   <View style={styles.divider} />
 
                   <View style={styles.breakdownRow}>
-                    <Text style={styles.breakdownInfo}>
-                      {powerStats.armedSoldiers} asker silahlı, {Math.max(0, powerStats.soldiers - powerStats.armedSoldiers)} asker silahsız.
-                    </Text>
+                    <View style={styles.breakdownLabelGroup}>
+                      <Shield size={16} color="#66bb6a" />
+                      <Text style={styles.breakdownLabel}>Toplam Silah Bonusu</Text>
+                    </View>
+                    <Text style={[styles.breakdownValue, { color: '#66bb6a' }]}>+{powerStats.totalWeaponPower}</Text>
                   </View>
 
                   <View style={styles.tipBox}>
                     <Shield size={14} color="#aaa" />
                     <Text style={styles.tipText}>
-                      Marketten "Baretta 9mm" alarak askerlerinin gücünü artırabilirsin. Her silah bir askeri güçlendirir.
+                      Markettan silah satın alarak ordunun gücünü artır! Baretta: +3, AK-47: +10 güç.
                     </Text>
                   </View>
                 </View>

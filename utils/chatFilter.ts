@@ -111,21 +111,42 @@ export function containsBannedWord(message: string): boolean {
 
 /**
  * Mesajı filtreler ve sonucu döndürür
+ * Artık engellemek yerine sansürleyerek mesajı kabul ediyor
  * @param message Kontrol edilecek mesaj
- * @returns { isValid: boolean, errorMessage?: string }
+ * @returns { isValid: boolean, censoredMessage: string }
  */
-export function filterMessage(message: string): { isValid: boolean; errorMessage?: string } {
-    if (containsBannedWord(message)) {
-        return {
-            isValid: false,
-            errorMessage: 'Bu mesajı gönderemezsiniz! Küfür, argo veya uygunsuz içerik tespit edildi.',
-        };
-    }
-
-    return { isValid: true };
+export function filterMessage(message: string): { isValid: boolean; censoredMessage: string; errorMessage?: string } {
+    const censored = censorMessage(message);
+    return {
+        isValid: true, // Artık her zaman geçerli, sadece sansürlü
+        censoredMessage: censored
+    };
 }
 
 /**
- * Yasaklı kelime uyarısı için mesaj
+ * Mesajdaki küfürleri sansürler (****** ile değiştirir)
+ * @param message Sansürlenecek mesaj
+ * @returns Sansürlenmiş mesaj
  */
-export const BANNED_WORD_WARNING = 'Bu mesajı gönderemezsiniz! Küfür, argo veya uygunsuz içerik tespit edildi.';
+export function censorMessage(message: string): string {
+    if (!message || typeof message !== 'string') {
+        return message;
+    }
+
+    let result = message;
+
+    // Her yasaklı kelime için kontrol et ve sansürle
+    for (const bannedWord of ALL_BANNED_WORDS) {
+        // Case-insensitive regex oluştur
+        const regex = new RegExp(bannedWord, 'gi');
+        result = result.replace(regex, '*'.repeat(bannedWord.length));
+    }
+
+    return result;
+}
+
+/**
+ * Yasaklı kelime uyarısı için mesaj (artık kullanılmıyor ama uyumluluk için kalıyor)
+ */
+export const BANNED_WORD_WARNING = 'Mesajınız otomatik olarak sansürlendi.';
+

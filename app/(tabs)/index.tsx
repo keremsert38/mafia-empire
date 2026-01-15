@@ -11,6 +11,7 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import {
   Crown,
@@ -28,6 +29,8 @@ import {
   Sword,
   MessageCircle,
   ShoppingCart,
+  HelpCircle,
+  Send,
 } from 'lucide-react-native';
 import { useGameService } from '@/hooks/useGameService';
 import CrimeModal from '@/components/CrimeModal';
@@ -41,6 +44,7 @@ import ProfileEditModal from '@/components/ProfileEditModal';
 import MarketModal from '@/components/MarketModal';
 import StoreModal from '@/components/StoreModal';
 import TutorialOverlay from '@/components/TutorialOverlay';
+import HowToPlayModal from '@/components/HowToPlayModal';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useTutorial } from '@/contexts/TutorialContext';
 
@@ -69,6 +73,7 @@ export default function HomeScreen() {
   const [mtConversionModalVisible, setMtConversionModalVisible] = useState(false);
   const [mtConversionAmount, setMtConversionAmount] = useState('1');
   const [mtConversionLoading, setMtConversionLoading] = useState(false);
+  const [howToPlayModalVisible, setHowToPlayModalVisible] = useState(false);
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [accumulatedIncome, setAccumulatedIncome] = useState(0);
@@ -405,7 +410,7 @@ export default function HomeScreen() {
               style={styles.actionButton}
               onPress={() => setMarketModalVisible(true)}
             >
-              <ShoppingCart size={24} color="#a855f7" />
+              <ShoppingCart size={24} color="#4ecdc4" />
               <Text style={styles.actionText}>Karaborsa</Text>
             </TouchableOpacity>
           </View>
@@ -439,18 +444,29 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          <View style={styles.overviewCard}>
+          {/* Nasıl Oynanır Butonu */}
+          <TouchableOpacity
+            style={styles.howToPlayCard}
+            onPress={() => setHowToPlayModalVisible(true)}
+          >
             <View style={styles.overviewHeader}>
-              <Users size={20} color="#ab47bc" />
-              <Text style={styles.overviewTitle}>{t.home.family}</Text>
+              <HelpCircle size={20} color="#29b6f6" />
+              <Text style={styles.overviewTitle}>Nasıl Oynanır?</Text>
             </View>
-            <Text style={styles.overviewValue}>{playerStats.caporegimes.length} {t.home.caporegimes}</Text>
             <Text style={styles.overviewDetail}>
-              {playerStats.caporegimes.reduce((sum, cap) => sum + cap.soldiers, 0)} {t.home.totalSoldiers}
+              Oyun hakkında bilgi almak için tıklayın
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Telegram Floating Button */}
+      <TouchableOpacity
+        style={styles.telegramButton}
+        onPress={() => Linking.openURL('https://t.me/capo_online')}
+      >
+        <Send size={24} color="#fff" />
+      </TouchableOpacity>
 
       <CrimeModal
         visible={crimeModalVisible}
@@ -516,6 +532,11 @@ export default function HomeScreen() {
       <StoreModal
         visible={mtConversionModalVisible}
         onClose={() => setMtConversionModalVisible(false)}
+      />
+
+      <HowToPlayModal
+        visible={howToPlayModalVisible}
+        onClose={() => setHowToPlayModalVisible(false)}
       />
 
       {/* Tutorial Overlay */}
@@ -969,5 +990,29 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  howToPlayCard: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#29b6f6',
+  },
+  telegramButton: {
+    position: 'absolute',
+    bottom: 30,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#0088cc',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#0088cc',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
   },
 });

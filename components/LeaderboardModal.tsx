@@ -21,6 +21,7 @@ import {
   ChevronUp,
   ChevronDown,
   Crown,
+  Sword,
 } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import { useGameService } from '@/hooks/useGameService';
@@ -43,11 +44,13 @@ interface LeaderboardEntry {
   is_active: boolean;
   last_active: string;
   score_change: number;
+  is_family_leader?: boolean;
+  family_name?: string;
 }
 
 export default function LeaderboardModal({ visible, onClose }: LeaderboardModalProps) {
   const { playerStats } = useGameService();
-  const [activeTab, setActiveTab] = useState<'level' | 'respect' | 'territories'>('level');
+  const [activeTab, setActiveTab] = useState<'level' | 'territories'>('level');
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,7 +60,7 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
   const [selectedPlayer, setSelectedPlayer] = useState<LeaderboardEntry | null>(null);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
 
-  const fetchLeaderboard = useCallback(async (type: 'level' | 'respect' | 'territories'): Promise<void> => {
+  const fetchLeaderboard = useCallback(async (type: 'level' | 'territories'): Promise<void> => {
     if (refreshing) return;
     setLoading(true);
 
@@ -72,7 +75,33 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
         return;
       }
 
-      setLeaderboard(data || []);
+      // Aile liderlerini al
+      const { data: familyLeaders } = await supabase
+        .from('families')
+        .select('leader_id, name');
+
+      const leaderMap = new Map<string, string>();
+      (familyLeaders || []).forEach((f: any) => {
+        leaderMap.set(f.leader_id, f.name);
+      });
+
+      // Aktiflik kontrolü için 5 dakika eşiği
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+      // Leaderboard verilerine aile bilgisi ve aktiflik ekle
+      const enrichedData = (data || []).map((entry: any) => {
+        const lastActive = entry.last_active ? new Date(entry.last_active) : null;
+        const isReallyActive = lastActive ? lastActive > fiveMinutesAgo : false;
+
+        return {
+          ...entry,
+          is_active: isReallyActive,
+          is_family_leader: leaderMap.has(entry.player_id),
+          family_name: leaderMap.get(entry.player_id) || null
+        };
+      });
+
+      setLeaderboard(enrichedData);
       setLastUpdate(new Date());
     } catch (error) {
       console.error('Leaderboard fetch error:', error);
@@ -82,7 +111,7 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
     }
   }, [refreshing]);
 
-  const handleTabChange = useCallback(async (tab: 'level' | 'respect' | 'territories'): Promise<void> => {
+  const handleTabChange = useCallback(async (tab: 'level' | 'territories'): Promise<void> => {
     setActiveTab(tab);
     await fetchLeaderboard(tab);
   }, [fetchLeaderboard]);
@@ -94,7 +123,7 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
     const intervalId = setInterval(() => {
       setRefreshing(true);
       fetchLeaderboard(activeTab);
-    }, 10000);
+    }, 60000);
 
     return () => {
       clearInterval(intervalId);
@@ -122,29 +151,19 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
   };
 
   const getTabIcon = (tab: string) => {
-    switch (tab) {
-      case 'level':
-        return <TrendingUp size={16} color={activeTab === tab ? '#000' : '#666'} />;
-      case 'respect':
-        return <Star size={16} color={activeTab === tab ? '#000' : '#666'} />;
-      case 'territories':
-        return <MapPin size={16} color={activeTab === tab ? '#000' : '#666'} />;
-      default:
-        return <TrendingUp size={16} color="#666" />;
+    if (tab === 'territories') {
+      return <MapPin size={16} color={activeTab === tab ? '#000' : '#666'} />;
     }
+    if (tab === 'power') {
+      return <Sword size={16} color={activeTab === tab ? '#000' : '#666'} />;
+    }
+    return <TrendingUp size={16} color={activeTab === tab ? '#000' : '#666'} />;
   };
 
   const getTabTitle = (tab: string): string => {
-    switch (tab) {
-      case 'level':
-        return 'Seviye';
-      case 'respect':
-        return 'Saygı';
-      case 'territories':
-        return 'Bölge';
-      default:
-        return '';
-    }
+    if (tab === 'territories') return 'Bölge';
+    if (tab === 'power') return 'Güç';
+    return 'Seviye';
   };
 
   const getMedalColor = (position: number): string => {
@@ -173,7 +192,7 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
             </View>
 
             <View style={styles.tabContainer}>
-              {(['level', 'respect', 'territories'] as const).map(tab => (
+              {(['level', 'power', 'territories'] as const).map(tab => (
                 <TouchableOpacity
                   key={tab}
                   style={[styles.tabButton, activeTab === tab && styles.activeTab]}
@@ -243,6 +262,13 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
                             <Text style={styles.donTagText}>Don</Text>
                           </View>
                         )}
+                        {/* Capo Tag for family leaders */}
+                        {player.is_family_leader && (
+                          <View style={styles.capoTag}>
+                            <Crown size={10} color="#9c27b0" />
+                            <Text style={styles.capoTagText}>Capo</Text>
+                          </View>
+                        )}
                         <Text style={[
                           styles.playerName,
                           playerStats && player.player_id === playerStats.id && styles.currentPlayerName
@@ -284,9 +310,13 @@ export default function LeaderboardModal({ visible, onClose }: LeaderboardModalP
                         styles.score,
                         playerStats && player.player_id === playerStats.id && styles.currentPlayerScore
                       ]}>
-                        {formatScore(player.score)}
+                        Lv.{player.player_level}
                       </Text>
-                      <Text style={styles.lastActive}>{formatLastActive(player.last_active)}</Text>
+                      {/* Bölge Sayısı */}
+                      <View style={styles.territoryBadge}>
+                        <MapPin size={12} color="#4ecdc4" />
+                        <Text style={styles.territoryCount}>{player.territories || 0}</Text>
+                      </View>
                     </View>
                   </TouchableOpacity>
                 ))
@@ -445,6 +475,23 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 3,
   },
+  capoTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2a1a2a',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: '#9c27b0',
+  },
+  capoTagText: {
+    color: '#9c27b0',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginLeft: 3,
+  },
   playerName: {
     fontSize: 16,
     fontWeight: 'bold',
@@ -500,6 +547,21 @@ const styles = StyleSheet.create({
   lastActive: {
     fontSize: 10,
     color: '#666',
+  },
+  territoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(78, 205, 196, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  territoryCount: {
+    fontSize: 12,
+    color: '#4ecdc4',
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
   loadingContainer: {
     padding: 20,

@@ -30,7 +30,11 @@ import {
   Sword,
   Target,
   UserPlus,
+  Camera,
 } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base64-arraybuffer';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTutorial } from '@/contexts/TutorialContext';
@@ -48,6 +52,16 @@ interface Family {
   created_at: string;
   treasury?: number;
   cash_treasury?: number;
+  profile_image?: string;
+}
+
+interface FamilyChatMessage {
+  id: string;
+  family_id: string;
+  sender_id: string;
+  sender_name: string;
+  message: string;
+  created_at: string;
 }
 
 
@@ -92,7 +106,7 @@ interface FamilyDonation {
 function FamilyScreen() {
   const { user } = useAuth();
   const { checkStepCompletion, currentStep } = useTutorial();
-  const [activeTab, setActiveTab] = useState<'browse' | 'create' | 'my-family' | 'requests' | 'donations'>('browse');
+  const [activeTab, setActiveTab] = useState<'browse' | 'create' | 'my-family' | 'requests' | 'donations' | 'chat'>('browse');
   const [families, setFamilies] = useState<Family[]>([]);
   const [myFamily, setMyFamily] = useState<Family | null>(null);
   const [myFamilyMembers, setMyFamilyMembers] = useState<FamilyMember[]>([]);
@@ -121,12 +135,22 @@ function FamilyScreen() {
   const [donationType, setDonationType] = useState<'soldiers' | 'cash'>('soldiers');
   const [showViewMembersModal, setShowViewMembersModal] = useState(false);
   const [selectedFamilyToView, setSelectedFamilyToView] = useState<Family | null>(null);
+
+  // Family Chat State
+  const [familyChatMessages, setFamilyChatMessages] = useState<FamilyChatMessage[]>([]);
+  const [newChatMessage, setNewChatMessage] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
   const [viewingFamilyMembers, setViewingFamilyMembers] = useState<FamilyMember[]>([]);
 
   // Yeni aile kurma form
   const [newFamilyName, setNewFamilyName] = useState('');
   const [newFamilyDescription, setNewFamilyDescription] = useState('');
   const [showTargetDropdown, setShowTargetDropdown] = useState(false);
+
+  // Order/Command State (Capo & Caporegime)
+  const [showOrderModal, setShowOrderModal] = useState(false);
+  const [selectedMemberForOrder, setSelectedMemberForOrder] = useState<FamilyMember | null>(null);
+  const [orderMessage, setOrderMessage] = useState('');
 
   useEffect(() => {
     loadFamilies();
@@ -263,6 +287,129 @@ function FamilyScreen() {
     } catch (error) {
       console.error('Error loading family cash donations:', error);
       setFamilyCashDonations([]);
+    }
+  };
+
+  // Family Chat Functions
+  const loadFamilyChat = async (familyId: string) => {
+    try {
+      setChatLoading(true);
+      const { data, error } = await supabase
+        .from('family_chat_messages')
+        .select('*')
+        .eq('family_id', familyId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+      setFamilyChatMessages((data || []).reverse());
+    } catch (error) {
+      console.error('Error loading family chat:', error);
+      setFamilyChatMessages([]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const sendChatMessage = async () => {
+    if (!myFamily || !user || !newChatMessage.trim()) return;
+
+    setChatLoading(true);
+    try {
+      const username = user.user_metadata?.username || user.email?.split('@')[0] || 'Oyuncu';
+
+      const { error } = await supabase
+        .from('family_chat_messages')
+        .insert({
+          family_id: myFamily.id,
+          sender_id: user.id,
+          sender_name: username,
+          message: newChatMessage.trim()
+        });
+
+      if (error) throw error;
+
+      setNewChatMessage('');
+      await loadFamilyChat(myFamily.id);
+    } catch (error: any) {
+      console.error('Error sending message:', error);
+      Alert.alert('Hata', error.message || 'Mesaj gönderilemedi!');
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  // Load chat when switching to chat tab
+  useEffect(() => {
+    if (activeTab === 'chat' && myFamily) {
+      loadFamilyChat(myFamily.id);
+    }
+  }, [activeTab, myFamily]);
+
+  // Family Profile Image Upload (Leader Only)
+  const pickFamilyImage = async () => {
+    if (!myFamily || !user || myFamily.leader_id !== user.id) {
+      Alert.alert('Yetkisiz', 'Sadece aile lideri profil fotoğrafı değiştirebilir.');
+      return;
+    }
+
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('İzin Gerekli', 'Galeri erişimi için izin vermeniz gerekiyor.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setLoading(true);
+        const asset = result.assets[0];
+        const fileExt = asset.uri.split('.').pop()?.toLowerCase() || 'jpg';
+        const fileName = `family_${myFamily.id}_${Date.now()}.${fileExt}`;
+        const filePath = `family-images/${fileName}`;
+
+        // Read file as base64 and convert to ArrayBuffer
+        const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(filePath, decode(base64), {
+            contentType: `image/${fileExt}`,
+            upsert: true,
+          });
+
+        if (uploadError) throw uploadError;
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(filePath);
+
+        // Update family record
+        const { error: updateError } = await supabase
+          .from('families')
+          .update({ profile_image: urlData.publicUrl })
+          .eq('id', myFamily.id);
+
+        if (updateError) throw updateError;
+
+        Alert.alert('Başarılı', 'Aile profil fotoğrafı güncellendi!');
+        await loadMyFamily();
+        await loadFamilies();
+      }
+    } catch (error: any) {
+      console.error('Error uploading family image:', error);
+      Alert.alert('Hata', error.message || 'Resim yüklenemedi!');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -762,12 +909,23 @@ function FamilyScreen() {
           onPress: async () => {
             setLoading(true);
             try {
+              // 1. Önce family_members'dan sil
               const { error } = await supabase
                 .from('family_members')
                 .delete()
                 .eq('id', member.id);
 
               if (error) throw error;
+
+              // 2. Oyuncunun player_stats'taki family_id'sini sıfırla
+              const { error: resetError } = await supabase
+                .from('player_stats')
+                .update({ family_id: null })
+                .eq('id', member.player_id);
+
+              if (resetError) {
+                console.error('Error resetting family_id:', resetError);
+              }
 
               Alert.alert('Başarılı', `${member.player_name} aileden kovuldu.`);
               setShowMemberManagementModal(false);
@@ -793,6 +951,69 @@ function FamilyScreen() {
     }
 
     setShowSoldierControlModal(true);
+  };
+
+  // Emir Gönderme (Sadece Capo & Consigliere)
+  const openOrderModal = (member: FamilyMember) => {
+    if (!myFamily || !user) return;
+
+    // Sadece capo (leader/isLeader) ve consigliere emir verebilir
+    if (!isLeader && myRole !== 'leader' && myRole !== 'consigliere') {
+      Alert.alert('Yetkisiz', 'Sadece Capo ve Consigliere emir verebilir.');
+      return;
+    }
+
+    // Kendine emir veremez
+    if (member.player_id === user.id) {
+      Alert.alert('Hata', 'Kendinize emir veremezsiniz!');
+      return;
+    }
+
+    setSelectedMemberForOrder(member);
+    setOrderMessage('');
+    setShowOrderModal(true);
+  };
+
+  const sendOrder = async () => {
+    if (!myFamily || !user || !selectedMemberForOrder || !orderMessage.trim()) {
+      Alert.alert('Hata', 'Lütfen bir emir mesajı yazın!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const senderName = user.user_metadata?.username || user.email?.split('@')[0] || 'Lider';
+      const roleName = myRole === 'leader' || myRole === 'capo' ? 'Capo' : 'Caporegime';
+
+      // Bildirim tablosuna emir kaydı ekle
+      const { error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: selectedMemberForOrder.player_id,
+          title: `📋 ${myFamily.name} - Emir`,
+          body: orderMessage.trim(),
+          type: 'order',
+          data: {
+            sender_id: user.id,
+            sender_name: senderName,
+            sender_role: roleName,
+            family_id: myFamily.id,
+            family_name: myFamily.name
+          }
+        });
+
+      if (error) throw error;
+
+      Alert.alert('Başarılı', `${selectedMemberForOrder.player_name} kişisine emir gönderildi!`);
+      setShowOrderModal(false);
+      setSelectedMemberForOrder(null);
+      setOrderMessage('');
+    } catch (error: any) {
+      console.error('Error sending order:', error);
+      Alert.alert('Hata', error.message || 'Emir gönderilemedi!');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Saldırı fonksiyonu
@@ -1143,6 +1364,18 @@ function FamilyScreen() {
 
       {filteredFamilies.map(family => (
         <View key={family.id} style={styles.familyCard}>
+          {/* Rectangular Profile Image Banner */}
+          {family.profile_image ? (
+            <Image
+              source={{ uri: family.profile_image }}
+              style={styles.familyBannerImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.familyBannerPlaceholder}>
+              <Crown size={32} color="#333" />
+            </View>
+          )}
           <View style={styles.familyCardHeader}>
             <View style={styles.familyIcon}>
               <Crown size={24} color="#d4af37" />
@@ -1299,9 +1532,31 @@ function FamilyScreen() {
     return (
       <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
         <View style={styles.myFamilyHeader}>
-          <View style={styles.myFamilyIcon}>
-            <Crown size={32} color="#d4af37" />
-          </View>
+          {/* Family Banner Image */}
+          <TouchableOpacity
+            style={styles.myFamilyBannerContainer}
+            onPress={isLeader ? pickFamilyImage : undefined}
+            disabled={!isLeader}
+          >
+            {myFamily.profile_image ? (
+              <Image
+                source={{ uri: myFamily.profile_image }}
+                style={styles.myFamilyBannerImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.myFamilyBannerPlaceholder}>
+                <Crown size={48} color="#333" />
+              </View>
+            )}
+            {isLeader && (
+              <View style={styles.changeBannerButton}>
+                <Camera size={16} color="#fff" />
+                <Text style={styles.changeBannerText}>Değiştir</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
           <Text style={styles.myFamilyName}>{myFamily.name || 'Aile Adı'}</Text>
           <Text style={styles.myFamilyDescription}>{myFamily.description || 'Açıklama yok'}</Text>
 
@@ -1535,6 +1790,16 @@ function FamilyScreen() {
                 >
                   <Sword size={14} color="#fff" />
                   <Text style={styles.soldierButtonText}>Kontrol</Text>
+                </TouchableOpacity>
+              )}
+              {/* Emir Ver Butonu - Sadece Capo & Consigliere */}
+              {(isLeader || myRole === 'leader' || myRole === 'consigliere') && member.player_id !== user?.id && (
+                <TouchableOpacity
+                  style={styles.orderButton}
+                  onPress={() => openOrderModal(member)}
+                >
+                  <Send size={14} color="#fff" />
+                  <Text style={styles.orderButtonText}>Emir</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1812,6 +2077,79 @@ function FamilyScreen() {
     </ScrollView>
   );
 
+  const renderChatTab = () => {
+    if (!myFamily) {
+      return (
+        <View style={styles.noFamilyContainer}>
+          <MessageSquare size={80} color="#333" />
+          <Text style={styles.noFamilyTitle}>Aile Sohbeti</Text>
+          <Text style={styles.noFamilyText}>
+            Aile sohbetine erişmek için bir aileye üye olmalısınız.
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.chatContainer}>
+        <ScrollView
+          style={styles.chatMessages}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.chatMessagesContent}
+        >
+          {chatLoading && familyChatMessages.length === 0 ? (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>Mesajlar yükleniyor...</Text>
+            </View>
+          ) : familyChatMessages.length === 0 ? (
+            <View style={styles.noChatMessages}>
+              <MessageSquare size={40} color="#444" />
+              <Text style={styles.noChatMessagesText}>Henüz mesaj yok</Text>
+              <Text style={styles.noChatMessagesSubtext}>İlk mesajı sen at!</Text>
+            </View>
+          ) : (
+            familyChatMessages.map(msg => (
+              <View
+                key={msg.id}
+                style={[
+                  styles.chatMessage,
+                  msg.sender_id === user?.id && styles.chatMessageOwn
+                ]}
+              >
+                <View style={styles.chatMessageHeader}>
+                  <Text style={styles.chatMessageSender}>{msg.sender_name}</Text>
+                  <Text style={styles.chatMessageTime}>
+                    {new Date(msg.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+                <Text style={styles.chatMessageText}>{msg.message}</Text>
+              </View>
+            ))
+          )}
+        </ScrollView>
+
+        <View style={styles.chatInputContainer}>
+          <TextInput
+            style={styles.chatInput}
+            placeholder="Mesajınızı yazın..."
+            placeholderTextColor="#666"
+            value={newChatMessage}
+            onChangeText={setNewChatMessage}
+            multiline
+            maxLength={500}
+          />
+          <TouchableOpacity
+            style={[styles.chatSendButton, chatLoading && styles.chatSendButtonDisabled]}
+            onPress={sendChatMessage}
+            disabled={chatLoading || !newChatMessage.trim()}
+          >
+            <Send size={20} color="#000" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -1869,6 +2207,17 @@ function FamilyScreen() {
               </Text>
             </TouchableOpacity>
           )}
+          {myFamily && (
+            <TouchableOpacity
+              style={[styles.tabButton, activeTab === 'chat' && styles.activeTab]}
+              onPress={() => setActiveTab('chat')}
+            >
+              <MessageSquare size={14} color={activeTab === 'chat' ? '#000' : '#666'} />
+              <Text style={[styles.tabButtonText, activeTab === 'chat' && styles.activeTabText]}>
+                Chat
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -1877,6 +2226,7 @@ function FamilyScreen() {
       {activeTab === 'my-family' && renderMyFamilyTab()}
       {activeTab === 'requests' && renderRequestsTab()}
       {activeTab === 'donations' && renderDonationsTab()}
+      {activeTab === 'chat' && renderChatTab()}
 
       {/* Soldato Kontrol Modal */}
       <Modal
@@ -2184,6 +2534,68 @@ function FamilyScreen() {
                 <Text style={styles.cancelButtonText}>Kapat</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Emir Gönderme Modal */}
+      <Modal
+        visible={showOrderModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowOrderModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Send size={24} color="#d4af37" />
+              <Text style={styles.modalTitle}>Emir Gönder</Text>
+              <TouchableOpacity onPress={() => setShowOrderModal(false)}>
+                <X size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {selectedMemberForOrder && (
+              <>
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalLabel}>Alıcı:</Text>
+                  <Text style={styles.modalValue}>{selectedMemberForOrder.player_name}</Text>
+                </View>
+
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalLabel}>Emir Mesajı:</Text>
+                  <TextInput
+                    style={styles.orderInput}
+                    placeholder="Emirinizi yazın..."
+                    placeholderTextColor="#666"
+                    value={orderMessage}
+                    onChangeText={setOrderMessage}
+                    multiline
+                    maxLength={300}
+                  />
+                </View>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.cancelButton]}
+                    onPress={() => setShowOrderModal(false)}
+                  >
+                    <Text style={styles.cancelButtonText}>İptal</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.sendOrderButton]}
+                    onPress={sendOrder}
+                    disabled={loading || !orderMessage.trim()}
+                  >
+                    <Send size={16} color="#000" />
+                    <Text style={styles.sendOrderButtonText}>
+                      {loading ? 'Gönderiliyor...' : 'Emir Gönder'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -3798,6 +4210,191 @@ const styles = StyleSheet.create({
     color: '#999',
     fontSize: 16,
     marginTop: 10,
+  },
+
+  // Chat Styles
+  chatContainer: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+  },
+  chatMessages: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  chatMessagesContent: {
+    paddingVertical: 16,
+  },
+  noChatMessages: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  noChatMessagesText: {
+    color: '#666',
+    fontSize: 16,
+    marginTop: 12,
+  },
+  noChatMessagesSubtext: {
+    color: '#444',
+    fontSize: 14,
+    marginTop: 4,
+  },
+  chatMessage: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    maxWidth: '85%',
+    alignSelf: 'flex-start',
+    borderLeftWidth: 3,
+    borderLeftColor: '#333',
+  },
+  chatMessageOwn: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#2a2a1a',
+    borderLeftWidth: 0,
+    borderRightWidth: 3,
+    borderRightColor: '#d4af37',
+  },
+  chatMessageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  chatMessageSender: {
+    color: '#d4af37',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  chatMessageTime: {
+    color: '#666',
+    fontSize: 10,
+  },
+  chatMessageText: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  chatInputContainer: {
+    flexDirection: 'row',
+    padding: 12,
+    backgroundColor: '#1a1a1a',
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+    alignItems: 'flex-end',
+  },
+  chatInput: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    color: '#fff',
+    fontSize: 14,
+    maxHeight: 100,
+    marginRight: 10,
+  },
+  chatSendButton: {
+    backgroundColor: '#d4af37',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chatSendButtonDisabled: {
+    opacity: 0.5,
+  },
+
+  // Family Banner Styles
+  familyBannerImage: {
+    width: '100%',
+    height: 120,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
+  familyBannerPlaceholder: {
+    width: '100%',
+    height: 120,
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  myFamilyBannerContainer: {
+    width: '100%',
+    position: 'relative',
+    marginBottom: 16,
+  },
+  myFamilyBannerImage: {
+    width: '100%',
+    height: 140,
+    borderRadius: 12,
+  },
+  myFamilyBannerPlaceholder: {
+    width: '100%',
+    height: 140,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  changeBannerButton: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 6,
+  },
+  changeBannerText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  // Order Button & Modal Styles
+  orderButton: {
+    backgroundColor: '#9c27b0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    gap: 4,
+    marginTop: 6,
+  },
+  orderButtonText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  orderInput: {
+    backgroundColor: '#0a0a0a',
+    borderRadius: 10,
+    padding: 12,
+    color: '#fff',
+    minHeight: 100,
+    textAlignVertical: 'top',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  sendOrderButton: {
+    backgroundColor: '#d4af37',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sendOrderButtonText: {
+    color: '#000',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 
 });

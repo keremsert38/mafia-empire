@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   Dimensions,
+  Image,
 } from 'react-native';
 import { X, Zap, DollarSign, Clock, Lock, Star, Building, Globe, Users, ChevronRight } from 'lucide-react-native';
 import { Crime } from '@/types/game';
@@ -165,9 +166,17 @@ export default function CrimeModal({ visible, onClose, crimes, playerLevel, acti
                     disabled={isLocked || isOnCooldown}
                     activeOpacity={0.7}
                   >
-                    {/* Top: Black Background */}
+                    {/* Top: Crime Image */}
                     <View style={styles.imageSection}>
-                      <View style={styles.crimeImage} />
+                      {crime.imageUrl ? (
+                        <Image
+                          source={{ uri: crime.imageUrl }}
+                          style={styles.crimeImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={styles.crimeImagePlaceholder} />
+                      )}
                       {/* Risk Badge */}
                       <View style={[styles.riskBadge, { backgroundColor: getRiskColor(crime.riskLevel || 'low') }]}>
                         <Text style={styles.riskText}>{getRiskText(crime.riskLevel || 'low')}</Text>
@@ -333,6 +342,10 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   crimeImage: {
+    width: '100%',
+    height: '100%',
+  },
+  crimeImagePlaceholder: {
     width: '100%',
     height: '100%',
     backgroundColor: '#000',

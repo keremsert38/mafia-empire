@@ -42,7 +42,7 @@ const COUNTRIES = [
 ];
 
 export default function TerritoryScreen() {
-  const { gameService, playerStats, territories, attackRegion, claimIncome } = useGameService();
+  const { gameService, playerStats, territories, attackRegion, claimIncome, withdrawSoldiers } = useGameService();
   const { t } = useLanguage();
   const { user } = useAuth();
   const { checkStepCompletion, currentStep } = useTutorial();
@@ -124,6 +124,12 @@ export default function TerritoryScreen() {
   const handleReinforce = async (soldiersToSend: number) => {
     if (!selectedTerritory) return;
     const result = await gameService.reinforceTerritory(selectedTerritory, soldiersToSend);
+    Alert.alert(result.success ? 'Başarılı' : 'Hata', result.message);
+  };
+
+  const handleWithdraw = async (amount: number) => {
+    if (!selectedTerritory) return;
+    const result = await withdrawSoldiers(selectedTerritory, amount);
     Alert.alert(result.success ? 'Başarılı' : 'Hata', result.message);
   };
 
@@ -384,6 +390,7 @@ export default function TerritoryScreen() {
             territory={territories.find(t => t.id === selectedTerritory)!}
             playerStats={playerStats}
             onReinforce={handleReinforce}
+            onWithdraw={handleWithdraw}
           />
         )}
 

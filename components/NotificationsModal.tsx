@@ -14,9 +14,10 @@ import { useAuth } from '@/contexts/AuthContext';
 
 interface Notification {
     id: string;
-    type: 'attack' | 'defense' | 'family' | 'system';
+    user_id: string;
+    type: 'attack' | 'defense' | 'family' | 'order' | 'system';
     title: string;
-    message: string;
+    body: string;
     data: any;
     is_read: boolean;
     created_at: string;
@@ -43,9 +44,9 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
         try {
             setLoading(true);
             const { data, error } = await supabase
-                .from('player_notifications')
+                .from('notifications')
                 .select('*')
-                .eq('player_id', user?.id)
+                .eq('user_id', user?.id)
                 .order('created_at', { ascending: false })
                 .limit(50);
 
@@ -67,7 +68,7 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
     const markAsRead = async (notificationId: string) => {
         try {
             await supabase
-                .from('player_notifications')
+                .from('notifications')
                 .update({ is_read: true })
                 .eq('id', notificationId);
 
@@ -86,6 +87,8 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
                 return <Sword size={20} color="#ff6b6b" />;
             case 'defense':
                 return <Shield size={20} color="#4ecdc4" />;
+            case 'order':
+                return <AlertCircle size={20} color="#9c27b0" />;
             case 'family':
                 return <Bell size={20} color="#d4af37" />;
             default:
@@ -152,7 +155,7 @@ export default function NotificationsModal({ visible, onClose }: NotificationsMo
                                     </View>
                                     <View style={styles.notificationContent}>
                                         <Text style={styles.notificationTitle}>{notification.title}</Text>
-                                        <Text style={styles.notificationMessage}>{notification.message}</Text>
+                                        <Text style={styles.notificationMessage}>{notification.body}</Text>
                                         <Text style={styles.notificationTime}>{formatTime(notification.created_at)}</Text>
                                     </View>
                                     {!notification.is_read && <View style={styles.unreadDot} />}

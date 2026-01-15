@@ -37,6 +37,8 @@ export interface PlayerStats {
   water: number;
   apple: number;
   weapon: number;
+  baretta: number; // New weapon field
+  ak47: number;    // New weapon field
   lastAttackTime?: Date;
   lastDefendTime?: Date;
 }

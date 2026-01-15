@@ -11,7 +11,6 @@ import {
 import {
   Shield,
   Users,
-  ArrowRight,
 } from 'lucide-react-native';
 import { Territory, PlayerStats } from '@/types/game';
 
@@ -21,213 +20,210 @@ interface TerritoryReinforceModalProps {
   territory: Territory;
   playerStats: PlayerStats;
   onReinforce: (soldiersToSend: number) => Promise<void>;
+  onWithdraw: (amount: number) => Promise<void>;
 }
 
-export default function TerritoryReinforceModal({ 
-  visible, 
-  onClose, 
+export default function TerritoryReinforceModal({
+  visible,
+  onClose,
   territory,
   playerStats,
-  onReinforce
+  onReinforce,
+  onWithdraw
 }: TerritoryReinforceModalProps) {
-  const [soldiersToSend, setSoldiersToSend] = useState<string>('0');
-  const [isReinforcing, setIsReinforcing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'reinforce' | 'withdraw'>('reinforce');
+  const [amountStr, setAmountStr] = useState<string>('0');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const maxSoldiers = playerStats.soldiers;
   const currentDefenders = territory.soldiers;
-  // Seviyeye göre maksimum asker: 1 seviye = 5, 2 seviye = 10, vs.
-  const maxSoldiersPerTerritory = playerStats.level * 5;
+  const playerSoldiers = playerStats.soldiers;
+
+  // Level sınırı kaldırıldı (çok yüksek limit)
+  const maxSoldiersPerTerritory = 1000000;
   const availableCapacity = maxSoldiersPerTerritory - currentDefenders;
-  const soldiersNum = parseInt(soldiersToSend) || 0;
 
-  const handleReinforce = async () => {
-    if (soldiersNum < 1) {
-      Alert.alert('Hata', 'En az 1 asker göndermelisiniz!');
+  const amount = parseInt(amountStr) || 0;
+
+  // Hesaplamalar
+  let maxAmount = 0;
+  let title = '';
+  let buttonText = '';
+  let color = '';
+
+  if (activeTab === 'reinforce') {
+    maxAmount = Math.min(playerSoldiers, availableCapacity);
+    title = 'Bölgeye Asker Ekle';
+    buttonText = 'Asker Yerleştir';
+    color = '#4ecdc4';
+  } else {
+    // Bölgede en az 1 asker kalmalı
+    maxAmount = Math.max(0, currentDefenders - 1);
+    title = 'Bölgeden Asker Çek';
+    buttonText = 'Asker Geri Çek';
+    color = '#ff6b6b';
+  }
+
+  const handleAction = async () => {
+    if (amount < 1) {
+      Alert.alert('Hata', 'En az 1 asker seçmelisiniz!');
       return;
     }
 
-    if (soldiersNum > maxSoldiers) {
-      Alert.alert('Hata', `Yetersiz asker! Sadece ${maxSoldiers} askeriniz var.`);
+    if (amount > maxAmount) {
+      Alert.alert('Hata', `Maksimum ${maxAmount} asker seçebilirsiniz.`);
       return;
     }
 
-    if (soldiersNum > availableCapacity) {
-      Alert.alert('Hata', `Bu bölgeye maksimum ${maxSoldiersPerTerritory} asker yerleştirebilirsiniz. Mevcut: ${currentDefenders}, Yerleştirebilir: ${availableCapacity}`);
-      return;
+    setIsLoading(true);
+    try {
+      if (activeTab === 'reinforce') {
+        await onReinforce(amount);
+      } else {
+        await onWithdraw(amount);
+      }
+      onClose();
+      setAmountStr('0');
+    } catch (error) {
+      Alert.alert('Hata', 'İşlem sırasında bir hata oluştu.');
+    } finally {
+      setIsLoading(false);
     }
-
-    Alert.alert(
-      'Asker Yerleştir',
-      `${territory.name} bölgesine ${soldiersNum} asker yerleştireceksiniz.\n\n` +
-      `Mevcut bölge askeri: ${currentDefenders}\n` +
-      `Yerleştirilecek: ${soldiersNum}\n` +
-      `Yeni toplam: ${currentDefenders + soldiersNum}/${maxSoldiersPerTerritory}`,
-      [
-        { text: 'İptal', style: 'cancel' },
-        {
-          text: 'Yerleştir',
-          onPress: async () => {
-            setIsReinforcing(true);
-            try {
-              await onReinforce(soldiersNum);
-              onClose();
-              setSoldiersToSend('0');
-            } catch (error) {
-              Alert.alert('Hata', 'Asker yerleştirme sırasında bir hata oluştu.');
-            } finally {
-              setIsReinforcing(false);
-            }
-          }
-        }
-      ]
-    );
   };
 
   const adjustCount = (change: number) => {
-    const newCount = Math.max(0, Math.min(
-      maxSoldiers,
-      availableCapacity,
-      soldiersNum + change
-    ));
-    setSoldiersToSend(newCount.toString());
+    const newCount = Math.max(0, Math.min(maxAmount, amount + change));
+    setAmountStr(newCount.toString());
   };
 
-  const presetCounts = [
-    Math.min(5, availableCapacity),
-    Math.min(10, availableCapacity),
-    Math.min(25, availableCapacity),
-    availableCapacity
-  ].filter(count => count > 0);
-
-  const uniquePresets = [...new Set(presetCounts)].slice(0, 4);
+  const uniquePresets = [
+    Math.floor(maxAmount * 0.25),
+    Math.floor(maxAmount * 0.5),
+    Math.floor(maxAmount * 0.75),
+    maxAmount
+  ].filter((v, i, self) => v > 0 && self.indexOf(v) === i);
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
       <View style={styles.overlay}>
-        <View style={styles.modal}>
+        <View style={[styles.modal, { borderColor: color }]}>
+          {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerContent}>
-              <Shield size={24} color="#4ecdc4" />
-              <Text style={styles.title}>Bölgeye Asker Yerleştir</Text>
+              {activeTab === 'reinforce' ? (
+                <Shield size={24} color={color} />
+              ) : (
+                <Users size={24} color={color} />
+              )}
+              <Text style={[styles.title, { color }]}>{title}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
           </View>
 
+          {/* Tabs */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'reinforce' && styles.activeTab]}
+              onPress={() => { setActiveTab('reinforce'); setAmountStr('0'); }}
+            >
+              <Text style={[styles.tabText, activeTab === 'reinforce' && styles.activeTabText]}>Asker Ekle</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'withdraw' && styles.activeTabWithdraw]}
+              onPress={() => { setActiveTab('withdraw'); setAmountStr('0'); }}
+            >
+              <Text style={[styles.tabText, activeTab === 'withdraw' && styles.activeTabText]}>Asker Çek</Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.content}>
-            {/* Bölge Bilgileri */}
+            {/* Info Card */}
             <View style={styles.territoryCard}>
               <Text style={styles.territoryName}>{territory.name}</Text>
               <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Mevcut Asker:</Text>
+                <Text style={styles.infoLabel}>{activeTab === 'reinforce' ? 'Mevcut Savunma:' : 'Mevcut Asker:'}</Text>
                 <Text style={styles.infoValue}>{currentDefenders}</Text>
               </View>
               <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Maksimum Kapasite:</Text>
-                <Text style={styles.infoValue}>{maxSoldiersPerTerritory} (Seviye {playerStats.level} × 5)</Text>
+                <Text style={styles.infoLabel}>{activeTab === 'reinforce' ? 'Sizin Deponuz:' : 'Sizin Askerleriniz:'}</Text>
+                <Text style={styles.infoValue}>{playerSoldiers}</Text>
               </View>
               <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Yerleştirilebilir:</Text>
-                <Text style={styles.infoValue}>{availableCapacity}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Sizin Asker Sayınız:</Text>
-                <Text style={styles.infoValue}>{maxSoldiers}</Text>
+                <Text style={styles.infoLabel}>İşlem Limiti:</Text>
+                <Text style={[styles.infoValue, { color }]}>{maxAmount}</Text>
               </View>
             </View>
 
-            {/* Asker Sayısı Seçimi */}
+            {/* Counter */}
             <View style={styles.counterSection}>
-              <Text style={styles.sectionTitle}>Kaç Asker Yerleştireceksiniz?</Text>
               <View style={styles.counter}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.counterButton}
                   onPress={() => adjustCount(-1)}
-                  disabled={soldiersNum <= 0}
+                  disabled={amount <= 0}
                 >
                   <Text style={styles.counterButtonText}>−</Text>
                 </TouchableOpacity>
-                
                 <TextInput
                   style={styles.counterInput}
-                  value={soldiersToSend}
+                  value={amountStr}
                   onChangeText={(text) => {
                     const num = parseInt(text) || 0;
-                    if (num >= 0 && num <= Math.min(maxSoldiers, availableCapacity)) {
-                      setSoldiersToSend(text);
+                    if (num >= 0 && num <= maxAmount) {
+                      setAmountStr(text);
                     } else if (text === '') {
-                      setSoldiersToSend('');
+                      setAmountStr('');
                     }
                   }}
                   keyboardType="numeric"
                   maxLength={10}
-                  placeholder="0"
-                  placeholderTextColor="#666"
                 />
-                
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.counterButton}
                   onPress={() => adjustCount(1)}
-                  disabled={soldiersNum >= Math.min(maxSoldiers, availableCapacity)}
+                  disabled={amount >= maxAmount}
                 >
                   <Text style={styles.counterButtonText}>+</Text>
                 </TouchableOpacity>
               </View>
               <Text style={styles.hintText}>
-                Yeni toplam: {currentDefenders + soldiersNum} / {maxSoldiersPerTerritory}
+                {activeTab === 'reinforce'
+                  ? `Yeni toplam: ${currentDefenders + amount}`
+                  : `Kalan: ${currentDefenders - amount}`}
               </Text>
             </View>
 
-            {/* Hızlı Seçim */}
+            {/* Presets */}
             {uniquePresets.length > 0 && (
-              <View style={styles.presetSection}>
-                <Text style={styles.sectionTitle}>Hızlı Seçim</Text>
-                <View style={styles.presetButtons}>
-                  {uniquePresets.map(count => (
-                    <TouchableOpacity
-                      key={count}
-                      style={[
-                        styles.presetButton,
-                        soldiersNum === count && styles.presetButtonActive
-                      ]}
-                      onPress={() => setSoldiersToSend(count.toString())}
-                    >
-                      <Text style={[
-                        styles.presetButtonText,
-                        soldiersNum === count && styles.presetButtonTextActive
-                      ]}>
-                        {count}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+              <View style={styles.presetButtons}>
+                {uniquePresets.map(val => (
+                  <TouchableOpacity
+                    key={val}
+                    style={[styles.presetButton, amount === val && { backgroundColor: color, borderColor: color }]}
+                    onPress={() => setAmountStr(val.toString())}
+                  >
+                    <Text style={[styles.presetButtonText, amount === val && { color: '#000' }]}>{val}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             )}
 
-            {/* Bilgi */}
-            <View style={styles.infoCard}>
-              <Text style={styles.infoTitle}>ℹ️ Bilgi</Text>
-              <Text style={styles.infoText}>
-                Her seviye için bölge başına maksimum 5 asker yerleştirebilirsiniz. 
-                Seviyeniz arttıkça daha fazla asker yerleştirebilirsiniz.
-              </Text>
-            </View>
-
-            {/* Yerleştir Butonu */}
+            {/* Action Button */}
             <TouchableOpacity
               style={[
-                styles.reinforceButton,
-                (isReinforcing || soldiersNum < 1 || soldiersNum > Math.min(maxSoldiers, availableCapacity)) && styles.reinforceButtonDisabled
+                styles.actionButton,
+                { backgroundColor: color },
+                (isLoading || amount < 1 || amount > maxAmount) && styles.disabledButton
               ]}
-              onPress={handleReinforce}
-              disabled={isReinforcing || soldiersNum < 1 || soldiersNum > Math.min(maxSoldiers, availableCapacity)}
+              onPress={handleAction}
+              disabled={isLoading || amount < 1 || amount > maxAmount}
             >
-              <Users size={18} color="#fff" />
-              <Text style={styles.reinforceButtonText}>
-                {isReinforcing ? 'Yerleştiriliyor...' : `${soldiersNum} Asker Yerleştir`}
+              <Text style={styles.actionButtonText}>
+                {isLoading ? 'İşleniyor...' : buttonText}
               </Text>
             </TouchableOpacity>
+
           </View>
         </View>
       </View>
@@ -265,7 +261,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#4ecdc4',
     marginLeft: 10,
   },
   closeButton: {
@@ -275,6 +270,31 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#999',
     fontWeight: 'bold',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 15,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomColor: '#4ecdc4',
+  },
+  activeTabWithdraw: {
+    borderBottomColor: '#ff6b6b',
+  },
+  tabText: {
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  activeTabText: {
+    color: '#fff',
   },
   content: {
     padding: 20,
@@ -307,12 +327,6 @@ const styles = StyleSheet.create({
   },
   counterSection: {
     marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#d4af37',
-    marginBottom: 10,
   },
   counter: {
     flexDirection: 'row',
@@ -351,69 +365,39 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
-  presetSection: {
-    marginBottom: 20,
-  },
   presetButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 20,
   },
   presetButton: {
     backgroundColor: '#2a2a2a',
     paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#333',
-    marginBottom: 5,
-  },
-  presetButtonActive: {
-    backgroundColor: '#4ecdc4',
-    borderColor: '#4ecdc4',
+    minWidth: 60,
+    alignItems: 'center',
   },
   presetButtonText: {
     color: '#fff',
     fontWeight: 'bold',
   },
-  presetButtonTextActive: {
-    color: '#000',
-  },
-  infoCard: {
-    backgroundColor: '#2a2a2a',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
-  },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#d4af37',
-    marginBottom: 10,
-  },
-  infoText: {
-    color: '#ccc',
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  reinforceButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#4ecdc4',
+  actionButton: {
     padding: 15,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  reinforceButtonDisabled: {
-    backgroundColor: '#666',
-    opacity: 0.6,
+  disabledButton: {
+    opacity: 0.5,
   },
-  reinforceButtonText: {
+  actionButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
-    marginLeft: 8,
   },
 });
-

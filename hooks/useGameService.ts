@@ -23,11 +23,11 @@ export function useGameService() {
     if (user) {
       console.log('🔥 USER CHANGED IN HOOK:', user.id);
       const username = user.user_metadata?.username || user.email?.split('@')[0] || 'Oyuncu';
-      
+
       // Async olarak initialize et
       const initializeGame = async () => {
         await gameServiceInstance.initializeForUser(user.id, username);
-        
+
         // Initialize tamamlandıktan sonra state'leri güncelle
         setPlayerStats(gameServiceInstance.getPlayerStats());
         setBusinesses(gameServiceInstance.getBusinesses());
@@ -40,7 +40,7 @@ export function useGameService() {
         setLeaderboard(gameServiceInstance.getLeaderboard());
         setAvailableCaporegimes(gameServiceInstance.getAvailableCaporegimes());
       };
-      
+
       initializeGame();
     }
   }, [user, gameServiceInstance]);
@@ -65,7 +65,7 @@ export function useGameService() {
 
     // Update game state every second
     const interval = setInterval(updateGameState, 1000);
-    
+
     const handleNewChatMessage = (message: ChatMessage) => {
       // Handle new chat message
     };
@@ -92,6 +92,13 @@ export function useGameService() {
     return res;
   };
 
+  const withdrawSoldiers = async (territoryId: string, amount: number) => {
+    const res = await gameServiceInstance.withdrawSoldiers(territoryId, amount);
+    setPlayerStats(gameServiceInstance.getPlayerStats());
+    setTerritories(gameServiceInstance.getTerritories());
+    return res;
+  };
+
   return {
     gameService: gameServiceInstance,
     playerStats,
@@ -108,5 +115,6 @@ export function useGameService() {
     isCommittingCrime: gameServiceInstance.isCommittingCrime(),
     attackRegion,
     claimIncome,
+    withdrawSoldiers,
   };
 }

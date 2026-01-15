@@ -53,6 +53,9 @@ class GameService {
       // İşletme durumlarını kontrol et
       await this.checkBusinessStatuses();
 
+      // Suçları Supabase'den yükle (fallback: hardcoded suçlar)
+      await this.loadCrimesFromSupabase();
+
       // Push Notification Registration (Fire and forget)
       this.registerPushForUser(userId).catch(e => console.log('Push reg failed', e));
     } catch (error) {
@@ -118,50 +121,92 @@ class GameService {
 
     if (data) {
       console.log('✅ Player stats loaded:', data);
-      // Supabase verisini PlayerStats formatına çevir
+      // Map Supabase data to PlayerStats
       this.playerStats = {
         id: data.id,
         name: data.username,
-        level: data.level || 1,
-        cash: data.cash || 0,
-
-
-        respect: data.respect || 0,
-        reputation: data.reputation || 0,
-        soldiers: data.soldiers || 0,
-        territories: data.territories || 0,
-        health: 100,
-        energy: data.energy || 100,
-        experience: data.experience || 0,
-        experienceToNext: data.experience_to_next || 100,
-        strength: data.strength || 10,
-        defense: data.defense || 10,
-        speed: data.speed || 10,
-        intelligence: data.intelligence || 10,
-        charisma: data.charisma || 10,
-        availablePoints: data.available_points || 0,
-        rank: data.rank as any || 'Soldato',
-        familyId: data.family_id || null,
-        familyRole: null,
-        location: data.location || 'Şehir Merkezi',
-        inventory: [],
-        achievements: [],
-        lastActive: new Date(data.last_active || Date.now()),
-        joinDate: new Date(data.join_date || Date.now()),
-        totalEarnings: Number(data.total_earnings) || 0,
+        level: data.level,
+        cash: data.cash,
+        energy: data.energy,
+        experience: data.experience,
+        experienceToNext: data.experience_to_next,
+        soldiers: data.soldiers,
+        territories: data.territories,
+        rank: data.rank as any,
+        strength: data.strength,
+        defense: data.defense,
+        speed: data.speed,
+        intelligence: data.intelligence,
+        charisma: data.charisma,
+        respect: data.respect,
+        reputation: data.reputation,
+        availablePoints: data.available_points,
+        profileImage: data.profile_image,
+        totalEarnings: data.total_earnings || 0,
         battlesWon: data.battles_won || 0,
         battlesLost: data.battles_lost || 0,
+        joinDate: new Date(data.created_at),
+        lastActive: new Date(data.last_active),
+        familyId: data.family_id,
+        familyRole: data.family_role,
+        location: data.location,
+        inventory: [], // Will follow
+        achievements: [],
         caporegimes: [],
-        profileImage: data.profile_image,
+        mtCoins: data.mt_coins || 0,
+        health: 100, // Placeholder
         passiveIncome: 0,
         lastIncomeCollection: new Date(),
-        mtCoins: data.mt_coins || 0,
         cola: data.cola || 0,
         water: data.water || 0,
         apple: data.apple || 0,
         weapon: data.weapon || 0,
+        baretta: data.baretta || 0,
+        ak47: data.ak47 || 0,
+        lastAttackTime: data.last_attack_time ? new Date(data.last_attack_time) : undefined
       };
       console.log('✅ Player stats converted:', this.playerStats);
+    }
+  }
+  // Supabase'den sadece suç resimlerini yükle (suç verileri oyun kodunda)
+  private async loadCrimesFromSupabase() {
+    console.log('🔄 Loading crime images from Supabase...');
+
+    try {
+      // Sadece resim URL'lerini yükle (crime_images tablosundan)
+      const { data: imageData, error } = await supabase
+        .from('crime_images')
+        .select('crime_id, image_url');
+
+      if (error) {
+        console.error('❌ Error loading crime images:', error);
+        console.log('⚠️ Using default crime images');
+        return;
+      }
+
+      if (imageData && imageData.length > 0) {
+        console.log(`✅ Loaded ${imageData.length} crime images from Supabase`);
+
+        // Resim URL'lerini map'e dönüştür
+        const imageMap = new Map<string, string>();
+        imageData.forEach((item: any) => {
+          if (item.image_url) {
+            imageMap.set(item.crime_id, item.image_url);
+          }
+        });
+
+        // Mevcut suçların resimlerini güncelle
+        this.crimes = this.crimes.map(crime => ({
+          ...crime,
+          imageUrl: imageMap.get(crime.id) || crime.imageUrl
+        }));
+
+        console.log('✅ Crime images updated from Supabase');
+      } else {
+        console.log('⚠️ No crime images found in Supabase, using defaults');
+      }
+    } catch (error) {
+      console.error('❌ Failed to load crime images:', error);
     }
   }
 
@@ -474,56 +519,6 @@ class GameService {
     console.log('✅ Loaded territories:', this.territories);
   }
 
-  // Market Listings
-  async getMarketListings(): Promise<any[]> {
-    const { data, error } = await supabase
-      .from('market_listings')
-      .select('*, item:items(*)')
-      .gt('quantity', 0)
-      .order('price', { ascending: true });
-
-    if (error) {
-      console.error('❌ Market listings error:', error);
-      return [];
-    }
-
-    // Map to UI format
-    return (data || []).map(row => ({
-      id: row.id,
-      itemId: row.item_id,
-      sellerId: row.seller_id,
-      price: row.price,
-      quantity: row.quantity,
-      isSystem: row.is_system,
-      itemName: row.item?.name,
-      itemType: row.item?.type,
-      itemEffectType: row.item?.effect_type,
-      itemEffectValue: row.item?.effect_value,
-      itemImageUrl: row.item?.image_url,
-      itemDescription: row.item?.description
-    }));
-  }
-
-  // Buy Market Item
-  async buyMarketItem(listingId: string, quantity: number): Promise<{ success: boolean; message: string }> {
-    if (!this.currentUserId) return { success: false, message: 'Giriş gerekli' };
-
-    const { data, error } = await supabase.rpc('buy_market_item', {
-      p_listing_id: listingId,
-      p_buyer_id: this.currentUserId,
-      p_quantity: quantity
-    });
-
-    if (error) return { success: false, message: error.message };
-
-    const res = data?.[0] || { success: false, message: 'İşlem başarısız' };
-
-    if (res.success) {
-      await this.loadPlayerStatsFromSupabase(); // Update cash and inventory columns
-    }
-    return { success: res.success, message: res.message };
-  }
-
   // Get Inventory (Mapped from Stats & Table)
   async getInventory(): Promise<any[]> {
     if (!this.currentUserId) return [];
@@ -712,6 +707,76 @@ class GameService {
       success,
       message: data?.[0]?.message || (success ? 'Askerler başarıyla yerleştirildi!' : 'Asker yerleştirme başarısız.'),
     };
+  }
+
+  // Bölgeden asker çek
+  async withdrawSoldiers(territoryId: string, amount: number): Promise<{ success: boolean; message: string }> {
+    if (amount < 1) {
+      return { success: false, message: 'En az 1 asker çekmelisiniz.' };
+    }
+
+    const { data, error } = await supabase.rpc('withdraw_soldiers_from_region', {
+      p_region_id: territoryId,
+      p_amount: amount
+    });
+
+    if (error) {
+      console.error('Error withdrawing soldiers:', error);
+      return { success: false, message: error.message };
+    }
+
+    // Asker sayısını ve haritayı yenile
+    await Promise.all([
+      this.refreshSoldiersFromSupabase(),
+      this.loadRegionsFromSupabase(),
+      this.loadPlayerStatsFromSupabase(),
+    ]);
+
+    // RPC sonucu direkt JSON dönebilir veya array içinde olabilir imp. göre
+    // SQL'de RETURNS JSONB dedik, yani tek obje dönecek.
+    const res = data as { success: boolean, message: string };
+    return res;
+  }
+
+  // Envanterim
+  async getMyInventory() {
+    const { data, error } = await supabase.rpc('get_my_inventory_v2');
+    if (error) throw error;
+    return data || [];
+  }
+
+  // Market İlanları
+  async getMarketListings() {
+    const { data, error } = await supabase.rpc('get_active_listings_v2');
+    if (error) throw error;
+    return data || [];
+  }
+
+  // İlan Oluştur
+  async createMarketListing(resourceId: string, quantity: number, price: number) {
+    const { data, error } = await supabase.rpc('create_market_listing_v2', {
+      p_resource_id: resourceId,
+      p_quantity: quantity,
+      p_price_per_unit: price
+    });
+    if (error) return { success: false, message: error.message };
+    return data as { success: boolean, message: string };
+  }
+
+  // Satın Al
+  async buyMarketItem(listingId: string, quantity: number) {
+    const { data, error } = await supabase.rpc('buy_market_item_v2', {
+      p_listing_id: listingId,
+      p_quantity: quantity
+    });
+
+    if (error) return { success: false, message: error.message };
+
+    const res = data as { success: boolean, message: string };
+    if (res.success) {
+      await this.loadPlayerStatsFromSupabase();
+    }
+    return res;
   }
 
   private getDefaultPlayerStats(): PlayerStats {
@@ -1235,6 +1300,34 @@ class GameService {
     }
   }
 
+  // V2 Saldırı Metodu
+  async attackPlayerV2(targetId: string, soldiers: number, barettaCount: number, ak47Count: number): Promise<{ success: boolean; message: string; data?: any }> {
+    try {
+      const { data, error } = await supabase.rpc('attack_player_v2', {
+        p_target_id: targetId,
+        p_soldiers: soldiers,
+        p_baretta_count: barettaCount,
+        p_ak47_count: ak47Count
+      });
+
+      if (error) throw error;
+
+      // Update local stats if successful (energy, xp, maybe cash)
+      if (data.success) {
+        if (this.playerStats) {
+          this.playerStats.energy = Math.max(0, this.playerStats.energy - 10);
+          this.playerStats.lastAttackTime = new Date();
+        }
+        await this.loadPlayerStatsFromSupabase(); // Reload to be sure
+      }
+
+      return data;
+    } catch (error: any) {
+      console.error('Attack error:', error);
+      return { success: false, message: error.message || 'Saldırı hatası' };
+    }
+  }
+
   // Oyuncuya Saldırı - Supabase RPC kullanarak
   async attackPlayer(targetId: string, targetName: string, soldiersToSend: number): Promise<{ success: boolean; message: string; cashStolen?: number; soldiersLost?: number }> {
     console.log('🔥 ATTACK PLAYER:', { targetId, targetName, soldiersToSend });
@@ -1270,25 +1363,11 @@ class GameService {
     }
   }
 
-  // Enerji yenileme: her 30 saniyede +1, maksimum 100
+  // Enerji yenileme: DEVRE DIŞI - Enerji sadece marketten alınan yiyeceklerle yenilenir
   regenerateEnergy() {
-    const now = Date.now();
-    const elapsedMs = now - this.lastEnergyRegenAt;
-    if (this.playerStats.energy >= 100) {
-      this.lastEnergyRegenAt = now;
-      return;
-    }
-    const regenIntervalMs = 30000; // 30s per energy
-    if (elapsedMs >= regenIntervalMs) {
-      const points = Math.floor(elapsedMs / regenIntervalMs);
-      const newEnergy = Math.min(100, this.playerStats.energy + points);
-      if (newEnergy !== this.playerStats.energy) {
-        this.playerStats.energy = newEnergy;
-        // Kaydı çok sık yapmamak için sadece değişince kaydediyoruz
-        this.savePlayerStatsToSupabase();
-      }
-      this.lastEnergyRegenAt = now - (elapsedMs % regenIntervalMs);
-    }
+    // Otomatik enerji yenileme kapatıldı
+    // Enerji sadece marketten satın alınan yiyeceklerle (Kola, Su, Elma) yenilenir
+    return;
   }
 
   // Level atlama kontrolü
@@ -2354,6 +2433,32 @@ class GameService {
 
 
 
+
+  async attackPlayerV2(targetId: string, soldiers: number, barettaCount: number, ak47Count: number): Promise<{ success: boolean; message: string; data?: any }> {
+    try {
+      const { data, error } = await supabase.rpc('attack_player_v2', {
+        p_target_id: targetId,
+        p_soldiers: soldiers,
+        p_baretta_count: barettaCount,
+        p_ak47_count: ak47Count
+      });
+
+      if (error) throw error;
+
+      if (data.success) {
+        if (this.playerStats) {
+          this.playerStats.energy = Math.max(0, this.playerStats.energy - 10);
+          this.playerStats.lastAttackTime = new Date();
+        }
+        await this.loadPlayerStatsFromSupabase(); // Reload to be sure
+      }
+
+      return data;
+    } catch (error: any) {
+      console.error('Attack error:', error);
+      return { success: false, message: error.message || 'Saldırı hatası' };
+    }
+  }
 
   assignCaporegimeToTerritory(territoryId: string, caporegimeId: string): { success: boolean; message: string } {
     return { success: false, message: 'Caporegime atama henüz mevcut değil.' };

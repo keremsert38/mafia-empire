@@ -79,15 +79,28 @@ export default function PlayerProfileModal({
             let familyName = null;
             let familyRole = null;
             if (playerData.family_id) {
+                // Önce family_members tablosundan dene
                 const { data: familyMember } = await supabase
                     .from('family_members')
                     .select('role, families(name)')
-                    .eq('user_id', playerId)
+                    .eq('player_id', playerId)
                     .single();
 
                 if (familyMember) {
                     familyName = (familyMember.families as any)?.name;
                     familyRole = familyMember.role;
+                } else {
+                    // Fallback: Doğrudan families tablosundan al
+                    const { data: familyData } = await supabase
+                        .from('families')
+                        .select('name, leader_id')
+                        .eq('id', playerData.family_id)
+                        .single();
+
+                    if (familyData) {
+                        familyName = familyData.name;
+                        familyRole = familyData.leader_id === playerId ? 'leader' : 'member';
+                    }
                 }
             }
 

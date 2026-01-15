@@ -1,35 +1,36 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
     StyleSheet,
     Modal,
     TouchableOpacity,
-    ScrollView,
-    Alert,
+    FlatList,
     Image,
-    TextInput,
-    RefreshControl,
+    Alert,
     ActivityIndicator,
-    Dimensions
+    TextInput
 } from 'react-native';
-import {
-    X,
-    ShoppingCart,
-    Zap,
-    DollarSign,
-    Package,
-    Shield,
-    Target,
-    Sparkles
-} from 'lucide-react-native';
+import { X, Store, ShoppingCart, Search, Package, DollarSign } from 'lucide-react-native';
 import { useGameService } from '@/hooks/useGameService';
-import { useLanguage } from '@/contexts/LanguageContext';
-import { MarketListing, InventorySlot } from '@/types/game';
-import { LinearGradient } from 'expo-linear-gradient';
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width * 0.95 - 30) / 2;
+interface MarketListing {
+    listing_id: string;
+    seller_name: string;
+    resource_name: string;
+    resource_image: string;
+    quantity: number;
+    price: number;
+    is_mine: boolean;
+}
+
+interface InventoryItem {
+    resource_id: string;
+    resource_name: string;
+    resource_image: string;
+    quantity: number;
+    base_cost: number;
+}
 
 interface MarketModalProps {
     visible: boolean;
@@ -37,352 +38,324 @@ interface MarketModalProps {
 }
 
 export default function MarketModal({ visible, onClose }: MarketModalProps) {
-    const { gameService, playerStats } = useGameService();
-    const { t } = useLanguage();
+    const { gameService } = useGameService();
 
-    const [activeTab, setActiveTab] = useState<'buy' | 'sell'>('buy');
+    // Sekme state
+    const [activeTab, setActiveTab] = useState<'market' | 'inventory'>('market');
+
+    // Market State
     const [listings, setListings] = useState<MarketListing[]>([]);
-    const [inventory, setInventory] = useState<InventorySlot[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [refreshing, setRefreshing] = useState(false);
+    const [marketLoading, setMarketLoading] = useState(false);
+    const [buyLoading, setBuyLoading] = useState<string | null>(null);
+    const [searchText, setSearchText] = useState('');
 
-    // Sell Modal
+    // Envanter State
+    const [inventory, setInventory] = useState<InventoryItem[]>([]);
+    const [inventoryLoading, setInventoryLoading] = useState(false);
+    const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
     const [sellModalVisible, setSellModalVisible] = useState(false);
-    const [selectedItemToSell, setSelectedItemToSell] = useState<InventorySlot | null>(null);
+    const [sellQuantity, setSellQuantity] = useState('');
     const [sellPrice, setSellPrice] = useState('');
-    const [sellQuantity, setSellQuantity] = useState('1');
+    const [listingLoading, setListingLoading] = useState(false);
 
-    // Buy Modal
-    const [buyModalVisible, setBuyModalVisible] = useState(false);
-    const [selectedItemToBuy, setSelectedItemToBuy] = useState<MarketListing | null>(null);
-    const [buyQuantity, setBuyQuantity] = useState('1');
-
-    const loadData = useCallback(async () => {
-        setLoading(true);
-        try {
-            if (activeTab === 'buy') {
-                const marketListings = await gameService.getMarketListings();
-                setListings(marketListings);
-            } else {
-                const inv = await gameService.getInventory();
-                setInventory(inv);
-            }
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
-    }, [activeTab, gameService]);
+    const filteredListings = listings.filter(l =>
+        l.resource_name.toLowerCase().includes(searchText.toLowerCase()) ||
+        l.seller_name.toLowerCase().includes(searchText.toLowerCase())
+    );
 
     useEffect(() => {
         if (visible) {
-            loadData();
+            loadMarket();
+            loadInventory();
         }
-    }, [visible, activeTab, loadData]);
+    }, [visible]);
 
-    const onRefresh = () => {
-        setRefreshing(true);
-        loadData();
-    };
-
-    const handleBuy = (listing: MarketListing) => {
-        setSelectedItemToBuy(listing);
-        setBuyQuantity('1');
-        setBuyModalVisible(true);
-    };
-
-    const handleBuyConfirm = async () => {
-        if (!selectedItemToBuy) return;
-        const qty = parseInt(buyQuantity);
-
-        if (isNaN(qty) || qty <= 0) {
-            Alert.alert('Hata', 'Geçerli miktar girin.');
-            return;
-        }
-        if (qty > selectedItemToBuy.quantity) {
-            Alert.alert('Hata', 'Stok yetersiz.');
-            return;
-        }
-
-        const totalPrice = qty * selectedItemToBuy.price;
-        if (playerStats.cash < totalPrice) {
-            Alert.alert('Yetersiz Bakiye', `Bu işlem için $${totalPrice.toLocaleString()} gerekli.`);
-            return;
-        }
-
-        setLoading(true);
-        const result = await gameService.buyMarketItem(selectedItemToBuy.id, qty);
-        setLoading(false);
-
-        if (result.success) {
-            Alert.alert('Başarılı!', `${qty} adet ${selectedItemToBuy.itemName} satın alındı.`);
-            setBuyModalVisible(false);
-            loadData();
-        } else {
-            Alert.alert('Hata', result.message);
+    const loadMarket = async () => {
+        setMarketLoading(true);
+        try {
+            const data = await gameService.getMarketListings();
+            setListings(data);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setMarketLoading(false);
         }
     };
 
-    const handleUseItem = async (slot: InventorySlot) => {
-        if (slot.item.type !== 'food') {
-            Alert.alert('Bilgi', 'Bu eşya pasif etkilidir.');
-            return;
-        }
-        setLoading(true);
-        const result = await gameService.useInventoryItem(slot.itemId);
-        setLoading(false);
-        if (result.success) {
-            Alert.alert('Kullanıldı!', result.message);
-            loadData();
-        } else {
-            Alert.alert('Hata', result.message);
+    const loadInventory = async () => {
+        setInventoryLoading(true);
+        try {
+            const data = await gameService.getMyInventory();
+            setInventory(data);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setInventoryLoading(false);
         }
     };
 
-    const openSellModal = (slot: InventorySlot) => {
-        setSelectedItemToSell(slot);
-        setSellPrice(slot.item.basePrice ? Math.floor(slot.item.basePrice * 0.8).toString() : '100');
+    const handleBuy = async (listing: MarketListing) => {
+        Alert.alert(
+            'Satın Al',
+            `${listing.quantity} adet ${listing.resource_name} için toplam $${listing.quantity * listing.price} ödeme yapılacak.`,
+            [
+                { text: 'İptal', style: 'cancel' },
+                {
+                    text: 'Satın Al',
+                    onPress: async () => {
+                        setBuyLoading(listing.listing_id);
+                        try {
+                            const result = await gameService.buyMarketItem(listing.listing_id, listing.quantity);
+                            if (result.success) {
+                                Alert.alert('Başarılı', 'Ürün satın alındı!');
+                                loadMarket();
+                                loadInventory();
+                            } else {
+                                Alert.alert('Hata', result.message);
+                            }
+                        } catch (error) {
+                            Alert.alert('Hata', 'Satın alma başarısız');
+                        } finally {
+                            setBuyLoading(null);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleSellPress = (item: InventoryItem) => {
+        setSelectedItem(item);
         setSellQuantity('1');
+        setSellPrice(item.base_cost.toString());
         setSellModalVisible(true);
     };
 
-    const handleSellConfirm = async () => {
-        if (!selectedItemToSell) return;
+    const handleCreateListing = async () => {
+        if (!selectedItem) return;
+
+        const qty = parseInt(sellQuantity);
         const price = parseInt(sellPrice);
-        const quantity = parseInt(sellQuantity);
 
-        if (isNaN(price) || price <= 0) return Alert.alert('Hata', 'Geçerli fiyat girin.');
-        if (isNaN(quantity) || quantity <= 0 || quantity > selectedItemToSell.quantity) return Alert.alert('Hata', 'Geçerli miktar girin.');
+        if (qty <= 0 || qty > selectedItem.quantity) {
+            Alert.alert('Hata', 'Geçersiz miktar');
+            return;
+        }
 
-        setLoading(true);
-        const result = await gameService.sellInventoryItem(selectedItemToSell.itemId, quantity, price);
-        setLoading(false);
+        if (price <= 0) {
+            Alert.alert('Hata', 'Fiyat 0 olamaz');
+            return;
+        }
 
-        if (result.success) {
-            Alert.alert('Başarılı!', 'Ürün satışa çıkarıldı.');
-            setSellModalVisible(false);
-            loadData();
-        } else {
-            Alert.alert('Hata', result.message);
+        const maxPrice = selectedItem.base_cost * 2;
+        if (price > maxPrice) {
+            Alert.alert('Hata', `Fiyat çok yüksek! Maksimum: $${maxPrice}`);
+            return;
+        }
+
+        setListingLoading(true);
+        try {
+            const result = await gameService.createMarketListing(selectedItem.resource_id, qty, price);
+            if (result.success) {
+                Alert.alert('Başarılı', 'İlan oluşturuldu!');
+                setSellModalVisible(false);
+                loadInventory();
+                loadMarket();
+            } else {
+                Alert.alert('Hata', result.message || 'İlan oluşturulamadı');
+            }
+        } catch (error) {
+            Alert.alert('Hata', 'Bir hata oluştu');
+        } finally {
+            setListingLoading(false);
         }
     };
 
-    const getTypeIcon = (type: string) => {
-        if (type === 'weapon') return <Target size={12} color="#ff6b6b" />;
-        return <Zap size={12} color="#4ecdc4" />;
-    };
+    const renderMarketItem = ({ item }: { item: MarketListing }) => (
+        <View style={styles.card}>
+            <Image source={{ uri: item.resource_image || 'https://via.placeholder.com/60' }} style={styles.image} />
+            <View style={styles.info}>
+                <Text style={styles.name}>{item.resource_name}</Text>
+                <Text style={styles.seller}>Satıcı: {item.seller_name} {item.is_mine ? '(Sen)' : ''}</Text>
+                <View style={styles.detailsRow}>
+                    <Text style={styles.quantity}>Adet: {item.quantity}</Text>
+                    <Text style={styles.price}>${item.price}/adet</Text>
+                </View>
+            </View>
+            {!item.is_mine && (
+                <TouchableOpacity
+                    style={styles.buyButton}
+                    onPress={() => handleBuy(item)}
+                    disabled={!!buyLoading}
+                >
+                    {buyLoading === item.listing_id ? (
+                        <ActivityIndicator size="small" color="#000" />
+                    ) : (
+                        <>
+                            <ShoppingCart size={16} color="#000" />
+                            <Text style={styles.buyButtonText}>${item.price * item.quantity}</Text>
+                        </>
+                    )}
+                </TouchableOpacity>
+            )}
+            {item.is_mine && (
+                <View style={styles.myListingBadge}>
+                    <Text style={styles.myListingText}>Senin</Text>
+                </View>
+            )}
+        </View>
+    );
+
+    const renderInventoryItem = ({ item }: { item: InventoryItem }) => (
+        <View style={styles.card}>
+            <Image source={{ uri: item.resource_image || 'https://via.placeholder.com/60' }} style={styles.image} />
+            <View style={styles.info}>
+                <Text style={styles.name}>{item.resource_name}</Text>
+                <Text style={styles.quantity}>Miktar: {item.quantity}</Text>
+                <Text style={styles.baseCost}>Değer: ${item.base_cost}</Text>
+            </View>
+            <TouchableOpacity
+                style={styles.sellButton}
+                onPress={() => handleSellPress(item)}
+            >
+                <DollarSign size={16} color="#000" />
+                <Text style={styles.sellButtonText}>Sat</Text>
+            </TouchableOpacity>
+        </View>
+    );
 
     return (
         <Modal visible={visible} animationType="slide" transparent>
             <View style={styles.overlay}>
-                <LinearGradient colors={['#0d0d0d', '#1a1a1a']} style={styles.modal}>
-                    {/* Header */}
+                <View style={styles.modal}>
                     <View style={styles.header}>
-                        <View style={styles.titleRow}>
-                            <Sparkles size={20} color="#d4af37" />
-                            <Text style={styles.title}>KARABORSA</Text>
+                        <View style={styles.headerTitleContainer}>
+                            <Store size={24} color="#4ecdc4" />
+                            <Text style={styles.title}>Karaborsa</Text>
                         </View>
-                        <TouchableOpacity onPress={onClose}>
-                            <X size={24} color="#555" />
+                        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                            <X size={24} color="#999" />
                         </TouchableOpacity>
                     </View>
 
-                    {/* Balance Bar */}
-                    <View style={styles.balanceBar}>
-                        <View style={styles.balanceItem}>
-                            <DollarSign size={14} color="#66bb6a" />
-                            <Text style={styles.balanceText}>${playerStats.cash.toLocaleString()}</Text>
-                        </View>
-                        <View style={styles.balanceItem}>
-                            <Zap size={14} color="#4ecdc4" />
-                            <Text style={styles.balanceText}>{playerStats.energy}/100</Text>
-                        </View>
-                        <View style={styles.balanceItem}>
-                            <Package size={14} color="#ffa726" />
-                            <Text style={styles.balanceText}>{inventory.length} eşya</Text>
-                        </View>
-                    </View>
-
-                    {/* Tabs */}
-                    <View style={styles.tabRow}>
+                    {/* Sekmeler */}
+                    <View style={styles.tabContainer}>
                         <TouchableOpacity
-                            style={[styles.tab, activeTab === 'buy' && styles.activeTab]}
-                            onPress={() => setActiveTab('buy')}
+                            style={[styles.tab, activeTab === 'market' && styles.activeTab]}
+                            onPress={() => setActiveTab('market')}
                         >
-                            <ShoppingCart size={16} color={activeTab === 'buy' ? '#d4af37' : '#555'} />
-                            <Text style={[styles.tabLabel, activeTab === 'buy' && styles.activeTabLabel]}>MAĞAZA</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.tab, activeTab === 'sell' && styles.activeTab]}
-                            onPress={() => setActiveTab('sell')}
-                        >
-                            <Package size={16} color={activeTab === 'sell' ? '#d4af37' : '#555'} />
-                            <Text style={[styles.tabLabel, activeTab === 'sell' && styles.activeTabLabel]}>ÇANTA</Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    {/* Content */}
-                    <ScrollView
-                        style={styles.content}
-                        contentContainerStyle={styles.scrollContent}
-                        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#d4af37" />}
-                    >
-                        {loading && !refreshing && <ActivityIndicator color="#d4af37" style={{ marginTop: 30 }} />}
-
-                        {!loading && activeTab === 'buy' && (
-                            <View style={styles.grid}>
-                                {listings.length === 0 ? (
-                                    <Text style={styles.emptyText}>Market boş.</Text>
-                                ) : (
-                                    listings.map(item => (
-                                        <TouchableOpacity
-                                            key={item.id}
-                                            style={styles.productCard}
-                                            onPress={() => handleBuy(item)}
-                                            activeOpacity={0.85}
-                                        >
-                                            <View style={styles.productImageWrap}>
-                                                <Image source={{ uri: item.itemImageUrl }} style={styles.productImage} resizeMode="contain" />
-                                            </View>
-                                            <View style={styles.productInfo}>
-                                                <Text style={styles.productName} numberOfLines={1}>{item.itemName}</Text>
-                                                <View style={styles.productMeta}>
-                                                    {getTypeIcon(item.itemType || 'food')}
-                                                    <Text style={styles.productEffect}>+{item.itemEffectValue}</Text>
-                                                </View>
-                                                <View style={styles.priceRow}>
-                                                    <Text style={styles.productPrice}>${item.price.toLocaleString()}</Text>
-                                                    <Text style={styles.productStock}>x{item.quantity}</Text>
-                                                </View>
-                                            </View>
-                                        </TouchableOpacity>
-                                    ))
-                                )}
-                            </View>
-                        )}
-
-                        {!loading && activeTab === 'sell' && (
-                            <View style={styles.inventoryList}>
-                                {inventory.length === 0 ? (
-                                    <Text style={styles.emptyText}>Çantanız boş.</Text>
-                                ) : (
-                                    inventory.map(slot => (
-                                        <View key={slot.id} style={styles.inventoryRow}>
-                                            <Image source={{ uri: slot.imageUrl }} style={styles.invImage} resizeMode="contain" />
-                                            <View style={styles.invInfo}>
-                                                <Text style={styles.invName}>{slot.name}</Text>
-                                                <Text style={styles.invDesc} numberOfLines={1}>{slot.description}</Text>
-                                                <Text style={styles.invQty}>Adet: {slot.quantity}</Text>
-                                            </View>
-                                            <View style={styles.invActions}>
-                                                {slot.item.type === 'food' && (
-                                                    <TouchableOpacity style={styles.useBtn} onPress={() => handleUseItem(slot)}>
-                                                        <Text style={styles.btnLabel}>Kullan</Text>
-                                                    </TouchableOpacity>
-                                                )}
-                                                <TouchableOpacity style={styles.sellBtn} onPress={() => openSellModal(slot)}>
-                                                    <Text style={styles.btnLabel}>Sat</Text>
-                                                </TouchableOpacity>
-                                            </View>
-                                        </View>
-                                    ))
-                                )}
-                            </View>
-                        )}
-                    </ScrollView>
-                </LinearGradient>
-            </View>
-
-            {/* Buy Modal */}
-            <Modal visible={buyModalVisible} transparent animationType="fade">
-                <View style={styles.overlay}>
-                    <View style={styles.sellModal}>
-                        <Text style={styles.sellTitle}>Satın Al</Text>
-                        <Text style={styles.sellItemName}>{selectedItemToBuy?.itemName}</Text>
-
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
-                            <Text style={styles.inputLabel}>Birim Fiyat: ${selectedItemToBuy?.price.toLocaleString()}</Text>
-                            <Text style={styles.inputLabel}>Stok: {selectedItemToBuy?.quantity}</Text>
-                        </View>
-
-                        <Text style={styles.inputLabel}>Miktar</Text>
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
-                            <TextInput
-                                style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                                value={buyQuantity}
-                                onChangeText={setBuyQuantity}
-                                keyboardType="numeric"
-                                placeholder="1"
-                                placeholderTextColor="#555"
-                            />
-                            <TouchableOpacity
-                                style={[styles.cancelBtn, { flex: 0.4, padding: 12 }]}
-                                onPress={() => {
-                                    if (selectedItemToBuy) {
-                                        const maxAfford = Math.floor(playerStats.cash / selectedItemToBuy.price);
-                                        const max = Math.min(maxAfford, selectedItemToBuy.quantity);
-                                        setBuyQuantity(max.toString());
-                                    }
-                                }}
-                            >
-                                <Text style={styles.cancelBtnText}>MAX</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <View style={{ marginVertical: 15, alignItems: 'center' }}>
-                            <Text style={{ color: '#888', fontSize: 12 }}>Toplam Tutar</Text>
-                            <Text style={{ color: '#66bb6a', fontSize: 20, fontWeight: 'bold' }}>
-                                ${selectedItemToBuy ? (selectedItemToBuy.price * (parseInt(buyQuantity) || 0)).toLocaleString() : 0}
+                            <ShoppingCart size={18} color={activeTab === 'market' ? '#000' : '#888'} />
+                            <Text style={[styles.tabText, activeTab === 'market' && styles.activeTabText]}>
+                                Pazar
                             </Text>
-                        </View>
-
-                        <View style={styles.sellActions}>
-                            <TouchableOpacity style={styles.cancelBtn} onPress={() => setBuyModalVisible(false)}>
-                                <Text style={styles.cancelBtnText}>İptal</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.confirmBtn} onPress={handleBuyConfirm}>
-                                <Text style={styles.confirmBtnText}>SATIN AL</Text>
-                            </TouchableOpacity>
-                        </View>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.tab, activeTab === 'inventory' && styles.activeTab]}
+                            onPress={() => setActiveTab('inventory')}
+                        >
+                            <Package size={18} color={activeTab === 'inventory' ? '#000' : '#888'} />
+                            <Text style={[styles.tabText, activeTab === 'inventory' && styles.activeTabText]}>
+                                Çantam ({inventory.length})
+                            </Text>
+                        </TouchableOpacity>
                     </View>
+
+                    {activeTab === 'market' && (
+                        <>
+                            <View style={styles.searchContainer}>
+                                <Search size={20} color="#666" style={styles.searchIcon} />
+                                <TextInput
+                                    style={styles.searchInput}
+                                    placeholder="Ürün veya satıcı ara..."
+                                    placeholderTextColor="#666"
+                                    value={searchText}
+                                    onChangeText={setSearchText}
+                                />
+                            </View>
+
+                            {marketLoading ? (
+                                <ActivityIndicator size="large" color="#4ecdc4" style={styles.loader} />
+                            ) : filteredListings.length === 0 ? (
+                                <View style={styles.emptyState}>
+                                    <Text style={styles.emptyText}>Aktif ilan bulunamadı.</Text>
+                                </View>
+                            ) : (
+                                <FlatList
+                                    data={filteredListings}
+                                    renderItem={renderMarketItem}
+                                    keyExtractor={item => item.listing_id}
+                                    contentContainerStyle={styles.listContent}
+                                />
+                            )}
+                        </>
+                    )}
+
+                    {activeTab === 'inventory' && (
+                        <>
+                            {inventoryLoading ? (
+                                <ActivityIndicator size="large" color="#d4af37" style={styles.loader} />
+                            ) : inventory.length === 0 ? (
+                                <View style={styles.emptyState}>
+                                    <Text style={styles.emptyText}>Çantan boş. Ürün üretmeye başla!</Text>
+                                </View>
+                            ) : (
+                                <FlatList
+                                    data={inventory}
+                                    renderItem={renderInventoryItem}
+                                    keyExtractor={item => item.resource_id}
+                                    contentContainerStyle={styles.listContent}
+                                />
+                            )}
+                        </>
+                    )}
+
+                    {/* Sell Popup */}
+                    {sellModalVisible && selectedItem && (
+                        <Modal visible={sellModalVisible} transparent animationType="fade">
+                            <View style={styles.sellOverlay}>
+                                <View style={styles.sellModal}>
+                                    <Text style={styles.sellTitle}>{selectedItem.resource_name} Sat</Text>
+
+                                    <Text style={styles.label}>Miktar (Max: {selectedItem.quantity})</Text>
+                                    <TextInput
+                                        style={styles.input}
+                                        value={sellQuantity}
+                                        onChangeText={setSellQuantity}
+                                        keyboardType="numeric"
+                                    />
+
+                                    <Text style={styles.label}>Birim Fiyat (Max: ${selectedItem.base_cost * 2})</Text>
+                                    <TextInput
+                                        style={styles.input}
+                                        value={sellPrice}
+                                        onChangeText={setSellPrice}
+                                        keyboardType="numeric"
+                                    />
+
+                                    <View style={styles.sellActions}>
+                                        <TouchableOpacity
+                                            style={styles.cancelBtn}
+                                            onPress={() => setSellModalVisible(false)}
+                                        >
+                                            <Text style={styles.cancelBtnText}>İptal</Text>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            style={styles.confirmBtn}
+                                            onPress={handleCreateListing}
+                                            disabled={listingLoading}
+                                        >
+                                            <Text style={styles.confirmBtnText}>
+                                                {listingLoading ? '...' : 'İlan Ver'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            </View>
+                        </Modal>
+                    )}
                 </View>
-            </Modal>
-
-            {/* Sell Modal */}
-            <Modal visible={sellModalVisible} transparent animationType="fade">
-                <View style={styles.overlay}>
-                    <View style={styles.sellModal}>
-                        <Text style={styles.sellTitle}>Satış Yap</Text>
-                        <Text style={styles.sellItemName}>{selectedItemToSell?.name}</Text>
-
-                        <Text style={styles.inputLabel}>Birim Fiyat ($)</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={sellPrice}
-                            onChangeText={setSellPrice}
-                            keyboardType="numeric"
-                            placeholderTextColor="#555"
-                        />
-
-                        <Text style={styles.inputLabel}>Adet (Max: {selectedItemToSell?.quantity})</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={sellQuantity}
-                            onChangeText={setSellQuantity}
-                            keyboardType="numeric"
-                            placeholderTextColor="#555"
-                        />
-
-                        <View style={styles.sellActions}>
-                            <TouchableOpacity style={styles.cancelBtn} onPress={() => setSellModalVisible(false)}>
-                                <Text style={styles.cancelBtnText}>İptal</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.confirmBtn} onPress={handleSellConfirm}>
-                                <Text style={styles.confirmBtnText}>Listele</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
+            </View>
         </Modal>
     );
 }
@@ -390,17 +363,16 @@ export default function MarketModal({ visible, onClose }: MarketModalProps) {
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.95)',
+        backgroundColor: 'rgba(0,0,0,0.85)',
         justifyContent: 'center',
-        alignItems: 'center',
+        padding: 15,
     },
     modal: {
-        width: '95%',
-        height: '85%',
-        borderRadius: 16,
+        backgroundColor: '#1a1a1a',
+        borderRadius: 15,
+        height: '90%',
         borderWidth: 1,
-        borderColor: '#2a2a2a',
-        overflow: 'hidden',
+        borderColor: '#4ecdc4',
     },
     header: {
         flexDirection: 'row',
@@ -408,243 +380,219 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 15,
         borderBottomWidth: 1,
-        borderBottomColor: '#222',
+        borderBottomColor: '#333',
     },
-    titleRow: {
+    headerTitleContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
+        gap: 10,
     },
     title: {
-        color: '#d4af37',
-        fontSize: 16,
+        fontSize: 22,
         fontWeight: 'bold',
-        letterSpacing: 2,
+        color: '#4ecdc4',
     },
-    balanceBar: {
+    closeButton: {
+        padding: 5,
+    },
+    tabContainer: {
         flexDirection: 'row',
-        justifyContent: 'space-around',
-        paddingVertical: 10,
-        backgroundColor: 'rgba(255,255,255,0.02)',
-    },
-    balanceItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 5,
-    },
-    balanceText: {
-        color: '#eee',
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    tabRow: {
-        flexDirection: 'row',
-        borderBottomWidth: 1,
-        borderBottomColor: '#222',
+        padding: 10,
+        gap: 10,
     },
     tab: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 14,
-        gap: 6,
+        padding: 12,
+        borderRadius: 10,
+        backgroundColor: '#2a2a2a',
+        gap: 8,
     },
     activeTab: {
-        borderBottomWidth: 2,
-        borderBottomColor: '#d4af37',
-        backgroundColor: 'rgba(212,175,55,0.05)',
+        backgroundColor: '#4ecdc4',
     },
-    tabLabel: {
-        color: '#555',
+    tabText: {
+        color: '#888',
+        fontWeight: '600',
+    },
+    activeTabText: {
+        color: '#000',
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#2a2a2a',
+        margin: 10,
+        marginTop: 0,
+        borderRadius: 10,
+        paddingHorizontal: 10,
+    },
+    searchIcon: {
+        marginRight: 10,
+    },
+    searchInput: {
+        flex: 1,
+        color: '#fff',
+        paddingVertical: 10,
+        fontSize: 15,
+    },
+    loader: {
+        padding: 40,
+    },
+    emptyState: {
+        padding: 40,
+        alignItems: 'center',
+    },
+    emptyText: {
+        color: '#666',
+        fontSize: 15,
+    },
+    listContent: {
+        padding: 10,
+    },
+    card: {
+        flexDirection: 'row',
+        backgroundColor: '#2a2a2a',
+        borderRadius: 10,
+        padding: 10,
+        marginBottom: 10,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#333',
+    },
+    image: {
+        width: 55,
+        height: 55,
+        borderRadius: 8,
+        backgroundColor: '#333',
+    },
+    info: {
+        flex: 1,
+        marginLeft: 12,
+    },
+    name: {
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: 'bold',
+    },
+    seller: {
+        color: '#888',
+        fontSize: 11,
+        marginTop: 2,
+    },
+    detailsRow: {
+        flexDirection: 'row',
+        gap: 12,
+        marginTop: 5,
+    },
+    quantity: {
+        color: '#ccc',
+        fontSize: 12,
+    },
+    price: {
+        color: '#4ecdc4',
         fontSize: 12,
         fontWeight: 'bold',
     },
-    activeTabLabel: {
-        color: '#d4af37',
+    baseCost: {
+        color: '#666',
+        fontSize: 11,
+        marginTop: 3,
     },
-    content: {
-        flex: 1,
-    },
-    scrollContent: {
-        padding: 12,
-    },
-    grid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-    },
-    productCard: {
-        width: CARD_WIDTH,
-        backgroundColor: 'rgba(255,255,255,0.03)',
-        borderRadius: 12,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        overflow: 'hidden',
-    },
-    productImageWrap: {
-        height: 90,
-        backgroundColor: 'rgba(0,0,0,0.4)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    productImage: {
-        width: 55,
-        height: 55,
-    },
-    productInfo: {
-        padding: 10,
-    },
-    productName: {
-        color: '#fff',
-        fontSize: 13,
-        fontWeight: 'bold',
-        marginBottom: 4,
-    },
-    productMeta: {
+    buyButton: {
+        backgroundColor: '#4ecdc4',
         flexDirection: 'row',
         alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
         gap: 4,
-        marginBottom: 6,
     },
-    productEffect: {
+    buyButtonText: {
+        color: '#000',
+        fontWeight: 'bold',
+        fontSize: 12,
+    },
+    sellButton: {
+        backgroundColor: '#d4af37',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        gap: 4,
+    },
+    sellButtonText: {
+        color: '#000',
+        fontWeight: 'bold',
+        fontSize: 12,
+    },
+    myListingBadge: {
+        backgroundColor: '#333',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 5,
+    },
+    myListingText: {
         color: '#aaa',
         fontSize: 11,
     },
-    priceRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    productPrice: {
-        color: '#66bb6a',
-        fontSize: 14,
-        fontWeight: 'bold',
-    },
-    productStock: {
-        color: '#666',
-        fontSize: 11,
-    },
-    emptyText: {
-        color: '#555',
-        textAlign: 'center',
-        marginTop: 50,
-        fontSize: 14,
-    },
-    inventoryList: {
-        gap: 10,
-    },
-    inventoryRow: {
-        flexDirection: 'row',
-        backgroundColor: 'rgba(255,255,255,0.03)',
-        borderRadius: 10,
-        padding: 12,
-        borderWidth: 1,
-        borderColor: '#2a2a2a',
-        alignItems: 'center',
-    },
-    invImage: {
-        width: 45,
-        height: 45,
-        marginRight: 12,
-    },
-    invInfo: {
+    sellOverlay: {
         flex: 1,
-    },
-    invName: {
-        color: '#fff',
-        fontSize: 14,
-        fontWeight: 'bold',
-    },
-    invDesc: {
-        color: '#888',
-        fontSize: 11,
-    },
-    invQty: {
-        color: '#d4af37',
-        fontSize: 12,
-        marginTop: 2,
-    },
-    invActions: {
-        flexDirection: 'column',
-        gap: 6,
-    },
-    useBtn: {
-        backgroundColor: '#4ecdc4',
-        paddingHorizontal: 14,
-        paddingVertical: 6,
-        borderRadius: 6,
-    },
-    sellBtn: {
-        backgroundColor: '#ffa726',
-        paddingHorizontal: 14,
-        paddingVertical: 6,
-        borderRadius: 6,
-    },
-    btnLabel: {
-        color: '#000',
-        fontSize: 11,
-        fontWeight: 'bold',
-        textAlign: 'center',
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        justifyContent: 'center',
+        padding: 25,
     },
     sellModal: {
-        backgroundColor: '#1a1a1a',
-        width: '80%',
+        backgroundColor: '#222',
         padding: 20,
-        borderRadius: 12,
+        borderRadius: 15,
         borderWidth: 1,
-        borderColor: '#333',
+        borderColor: '#d4af37',
     },
     sellTitle: {
         color: '#fff',
         fontSize: 18,
         fontWeight: 'bold',
+        marginBottom: 15,
         textAlign: 'center',
-        marginBottom: 10,
     },
-    sellItemName: {
-        color: '#d4af37',
-        fontSize: 14,
-        textAlign: 'center',
-        marginBottom: 20,
-    },
-    inputLabel: {
-        color: '#888',
-        fontSize: 12,
-        marginBottom: 5,
+    label: {
+        color: '#ccc',
+        marginBottom: 6,
+        marginTop: 8,
     },
     input: {
-        backgroundColor: '#111',
+        backgroundColor: '#333',
         color: '#fff',
-        padding: 12,
+        padding: 10,
         borderRadius: 8,
-        marginBottom: 15,
-        borderWidth: 1,
-        borderColor: '#333',
-        fontSize: 14,
+        fontSize: 15,
     },
     sellActions: {
         flexDirection: 'row',
+        marginTop: 20,
         gap: 10,
     },
     cancelBtn: {
         flex: 1,
-        backgroundColor: '#333',
-        padding: 14,
-        borderRadius: 8,
+        padding: 12,
         alignItems: 'center',
-    },
-    cancelBtnText: {
-        color: '#aaa',
-        fontWeight: 'bold',
+        backgroundColor: '#444',
+        borderRadius: 8,
     },
     confirmBtn: {
         flex: 1,
-        backgroundColor: '#66bb6a',
-        padding: 14,
-        borderRadius: 8,
+        padding: 12,
         alignItems: 'center',
+        backgroundColor: '#d4af37',
+        borderRadius: 8,
+    },
+    cancelBtnText: {
+        color: '#fff',
+        fontWeight: 'bold',
     },
     confirmBtnText: {
         color: '#000',

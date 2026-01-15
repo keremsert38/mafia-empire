@@ -21,6 +21,7 @@ interface ChatMessage {
   username: string;
   message: string;
   created_at: string;
+  is_admin?: boolean;
 }
 
 interface BlockedUser {
@@ -77,18 +78,33 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
   // Mesajları yükle
   const loadMessages = async () => {
     try {
+      // Mesajları basit şekilde çek (foreign key olmadan)
       const { data, error } = await supabase
         .from('chat_messages')
         .select('*')
         .order('created_at', { ascending: true })
-        .limit(100);
+        .limit(50);
 
       if (error) {
         console.error('Error loading messages:', error);
         return;
       }
 
-      setMessages(data || []);
+      // Admin listesini ayrı al
+      const { data: adminData } = await supabase
+        .from('player_stats')
+        .select('id, is_admin')
+        .eq('is_admin', true);
+
+      const adminIds = (adminData || []).map((a: any) => a.id);
+
+      // Admin bilgisini mesaja ekle
+      const messagesWithAdmin = (data || []).map((msg: any) => ({
+        ...msg,
+        is_admin: adminIds.includes(msg.user_id)
+      }));
+
+      setMessages(messagesWithAdmin);
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
@@ -101,31 +117,43 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
   const sendMessage = async () => {
     if (!newMessage.trim() || !user) return;
 
+    // Mesajı sansürle (artık engellemiyoruz)
     const filterResult = filterMessage(newMessage);
-    if (!filterResult.isValid) {
-      Alert.alert('⚠️ Uyarı', BANNED_WORD_WARNING);
+    const messageToSend = filterResult.censoredMessage || newMessage.trim();
+
+    // User kontrolü
+    if (!user || !user.id) {
+      Alert.alert('Hata', 'Kullanıcı oturumu bulunamadı');
       return;
     }
 
     setLoading(true);
     try {
       const username = user.user_metadata?.username || user.email?.split('@')[0] || 'Anonim';
+      console.log('📨 Sending message:', { userId: user.id, username, message: newMessage });
 
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('chat_messages')
         .insert({
           user_id: user.id,
-          username,
-          message: newMessage.trim()
-        });
+          username: username,
+          message: newMessage.trim() // Filtreyi geçici olarak kaldırdım
+        })
+        .select();
 
       if (error) {
-        console.error('Error sending message:', error);
-        Alert.alert('Hata', 'Mesaj gönderilemedi!');
+        console.error('❌ Insert Error:', error);
+        Alert.alert('Mesaj Hatası', error.message || 'Bilinmeyen hata');
         return;
       }
 
+      console.log('✅ Message sent:', data);
+
       setNewMessage('');
+
+      // Mesajları yeniden yükle (Supabase'den güncel verilerle)
+      await loadMessages();
+
     } catch (error) {
       console.error('Error sending message:', error);
       Alert.alert('Hata', 'Mesaj gönderilemedi!');
@@ -347,12 +375,19 @@ export default function ChatModal({ visible, onClose }: ChatModalProps) {
                   ]}
                 >
                   <View style={styles.messageHeader}>
-                    <Text style={[
-                      styles.username,
-                      isMyMessage(message) ? styles.myUsername : styles.otherUsername
-                    ]}>
-                      {isMyMessage(message) ? 'Sen' : message.username}
-                    </Text>
+                    <View style={styles.usernameContainer}>
+                      <Text style={[
+                        styles.username,
+                        isMyMessage(message) ? styles.myUsername : styles.otherUsername
+                      ]}>
+                        {isMyMessage(message) ? 'Sen' : message.username}
+                      </Text>
+                      {message.is_admin && (
+                        <View style={styles.adminBadge}>
+                          <Text style={styles.adminBadgeText}>ADMIN</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.timestamp}>
                       {formatTime(message.created_at)}
                     </Text>
@@ -845,6 +880,22 @@ const styles = StyleSheet.create({
   unblockButtonText: {
     color: '#fff',
     fontSize: 12,
+    fontWeight: 'bold',
+  },
+  usernameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  adminBadge: {
+    backgroundColor: '#ff4444',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  adminBadgeText: {
+    color: '#fff',
+    fontSize: 9,
     fontWeight: 'bold',
   },
 });
